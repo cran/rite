@@ -1,8 +1,8 @@
-145d6807c0dcbedfb3b80f4867be3e3b *DESCRIPTION
+8e778afef0e9144d999c5b788e8950ef *DESCRIPTION
 39fc9cf79ec8438b37fe681abc116012 *NAMESPACE
-e8f791e7b5e1e570e001f88e70186887 *NEWS
-caeba43b02df3b842409f1d98b1c3ba6 *R/rite.r
+9774660f367e46ce1fc5f2edf6deec8d *NEWS
+988dab58efa01fc96c4ebc283dc61352 *R/rite.r
 faa3951052a4b878e426f24ab63cf091 *inst/CITATION
-a07fecdb21cfeff6f7a7533ed8a4145c *inst/logo/favicon.ico
-2dbcc05678994110f0875de72a8b97ce *man/rite-package.Rd
-f9ce9a065ed5041f0f40c5a3783ee498 *man/rite.Rd
+b3eb33df58f5cb823699f53508f7c62c *inst/logo/rlogo.gif
+94083d2d6a6ff06bdff7969948f575ba *man/rite-package.Rd
+5159f0ba0232fb0749f6932bfc604ad8 *man/rite.Rd

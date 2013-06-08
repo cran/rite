@@ -1,12 +1,10 @@
 rite <- function(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
 				fontFamily="Courier", fontSize=10, orientation="horizontal",
-				highlight=c("r","latex"), color="purple", ...){	
+				highlight=c("r","latex"), color=NULL, ...){	
 	# setup some values to deal with load/save/exit
 	filename <- filename # script filename (if loaded or saved)
 	scriptSaved <- TRUE # a logical for whether current edit file is saved
 	searchterm <- ""
-	if(is.null(color) || color=="")
-		color <- "purple" # syntax highlighting color (functions)
 	wmtitle <- packagetitle <- paste("rite ", packageDescription("rite", fields = "Version"), sep="")
 	
 	# optionally setup evaluation environment
@@ -18,12 +16,15 @@ rite <- function(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
 	# configure catchOutput/catchError
 	if(catchOutput){
 		outputSaved <- TRUE # a logical for whether current output file is saved
-		#outsink <- textConnection("osink", "w") # create connection for stdout
-		#sink(outsink, type="output") # sink stdout
+		outsink <- textConnection("osink", "w") # create connection for stdout
+		sink(outsink, type="output") # sink stdout
 		errsink <- textConnection("esink", "w") # create connection for stderr
 		sink(errsink, type="message") # sink stderr
+		ritecat <- textConnection("riteout","w")
+		cat <- function(..., sep=" ", catchOutput=catchOutput)
+			writeLines(text=paste(as.character(unlist(list(...))), collapse=sep), sep="\n", con=ritecat)
 	}
-		
+			
 	# exit procedure
 	exitWiz <- function() {
 		if(catchOutput){
@@ -57,19 +58,24 @@ rite <- function(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
 			}
 		}
 		if(catchOutput){
-			#sink(NULL, type="output")
-			#close(outsink)
+			sink(NULL, type="output")
+			close(outsink)
 			sink(NULL, type="message")
 			close(errsink)
+			close(ritecat)
+			cat <<- base::cat
 		}
+		if("windows"==.Platform$OS.type)
+			bringToTop(-1)
 		tkdestroy(editor)
-		bringToTop(-1)
+		#if(is.null(evalenv))
+			#return(mget(ls(editenv),editenv))
 	}
 	
 	### FILE MENU FUNCTIONS ###
 	newScript <- function(){
 		if(!scriptSaved){
-			exit <- tkmessageBox(message = "Do you want to save the script?", icon = "question", type = "yesnocancel", default = "yes")			
+			exit <- tkmessageBox(message = "Do you want to save the current script?", icon = "question", type = "yesnocancel", default = "yes")			
 			if(tclvalue(exit)=="yes")
 				saveScript()
 			else if(tclvalue(exit)=="no"){}
@@ -84,17 +90,18 @@ rite <- function(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
 		wmtitle <<- packagetitle
 		tkwm.title(editor, wmtitle)
 	}
-	loadScript <- function(filename=filename){
-		if(is.null(filename) | is.na(filename) | filename %in% c("","%filename"))
-			filename <- tclvalue(tkgetOpenFile())
-		if(!length(filename) || filename==""){
-			filename <<- filename
+	loadScript <- function(fname=NULL){
+		newScript()
+		if(is.null(filename) || is.na(filename) || filename %in% c(""))
+			fname <- tclvalue(tkgetOpenFile())
+		if(!length(fname) || fname==""){
 			return()
 		}
-		chn <- tclopen(filename, "r")
+		chn <- tclopen(fname, "r")
 		tkinsert(txt_edit, "end", tclvalue(tclread(chn)))
 		tclclose(chn)
 		scriptSaved <<- TRUE
+		filename <<- fname
 		wmtitle <<- paste(filename,"-",packagetitle)
 		tkwm.title(editor, wmtitle)
 	}
@@ -146,12 +153,12 @@ rite <- function(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
 		if (!length(filename) || filename=="")
 			return()
 		else
-			tkinsert(txt_edit, "insert", paste0("sys.source(\"",filename,"\")\n"))
+			tkinsert(txt_edit, "insert", paste("sys.source(\"",filename,"\")\n",sep=""))
 	}
 	
 	### RUN FUNCTIONS ###
 	runCode <- function(code=NULL, e=NULL) {
-        if(is.null(e)){
+		if(is.null(e)){
 			e <- try(parse(text=code))
 			if (inherits(e, "try-error")) {
 				tkmessageBox(message="Parse error\nUse F7 to check syntax", icon="error")
@@ -159,17 +166,41 @@ rite <- function(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
 				return()
 			}
 		}
+		if(catchOutput==TRUE)
+			length2 <- length(osink)
         out <- ""
 		writeError <- function(errmsg, type, focus=TRUE){
 			tkconfigure(err_out, state="normal")
-			tkinsert(err_out,"end",paste0(type,": ",errmsg,"\n"))
+			tkinsert(err_out,"end",paste(type,": ",errmsg,"\n",sep=""))
 			tkconfigure(err_out, state="disabled")
 			if(focus){
 				tkselect(nb2, 1)
 				tkfocus(txt_edit)
 			}
 		}
-		if(grepl("library(",e,fixed=TRUE)){
+		if(grepl("library(",e,fixed=TRUE)[[1]]){
+			lib <- try(eval(e[1]))
+			if(inherits(lib,"try-error")){
+				if(catchOutput)
+					writeError(lib,"Error",TRUE)
+				else
+					print(lib)
+			}
+			else if("r" %in% highlight){
+				packagename <- strsplit(strsplit(e[1],"library(",fixed=TRUE)[[1]][2],")")[[1]][1]
+				packs <- c(	packagename,
+							gsub(" ","",strsplit(packageDescription(packagename, fields="Depends"),",")[[1]]))
+				packs <- na.omit(packs)
+				for(i in 1:length(packs)){
+					funs <- try(paste(unique(gsub("<-","",objects(paste("package:",packagename,sep="")))),collapse=" "), silent=TRUE)
+					if(!inherits(funs,"try-error"))
+						.Tcl(paste("ctext::addHighlightClass ",.Tk.ID(txt_edit)," ",packagename,"functions ","purple","  [list ",funs," ]",sep=""))
+				}
+			}
+			
+		}
+		else if(catchOutput==TRUE && grepl("cat(",e,fixed=TRUE)[[1]]){
+			length1 <- length(riteout)
 			lib <- try(eval(e[1]))
 			if(inherits(lib,"try-error")){
 				if(catchOutput)
@@ -178,17 +209,10 @@ rite <- function(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
 					print(lib)
 			}
 			else{
-				packagename <- strsplit(strsplit("library(MTurkR)","library(",fixed=TRUE)[[1]][2],")")[[1]][1]
-				packs <- c(	packagename,
-							gsub(" ","",strsplit(packageDescription(packagename, fields="Depends"),",")[[1]]))
-				packs <- na.omit(packs)
-				for(i in 1:length(packs)){
-					funs <- try(paste0(unique(gsub("<-","",objects(paste0("package:",packagename)))),collapse=" "), silent=TRUE)
-					if(!inherits(funs,"try-error"))
-						.Tcl(paste0("ctext::addHighlightClass ",.Tk.ID(txt_edit)," ",packagename,"functions ",color,"  [list ",funs," ]"))
-				}
-			}
-			
+				tkconfigure(output, state="normal")
+				tkinsert(output,"end",paste(riteout[(length1+1):length(riteout)],"\n",collapse=""))
+				tkconfigure(output, state="disabled")
+			}	
 		}
 		else{
 			out <- tryCatch({withVisible(eval(e[1], envir=evalenv))},
@@ -201,7 +225,7 @@ rite <- function(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
 						if(tclvalue(errbox)=="no")
 							e <<- ""
 						if(catchOutput)
-							writeError(errmsg,"Error",FALSE)
+							writeError(errmsg,"Error",TRUE)
 					}
 					else if(catchOutput)
 						writeError(errmsg,"Error")
@@ -218,7 +242,7 @@ rite <- function(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
 						if(tclvalue(errbox)=="no")
 							e <<- ""
 						if(catchOutput)
-							writeError(errmsg,"Warning",FALSE)
+							writeError(errmsg,"Warning",TRUE)
 					}
 					else if(catchOutput)
 						writeError(errmsg,"Warning")
@@ -249,11 +273,18 @@ rite <- function(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
 					out <<- list(value="", visible=FALSE)
 				}
 			)
-			if(catchOutput && out$visible){ # output to `output`
+			if(catchOutput){ # output to `output`
 				tkconfigure(output, state="normal")
-				tkinsert(output,"end",paste0(capture.output(out$value),"\n",collapse=""))
+				if(out$visible){
+					tkinsert(output,"end",paste(paste(capture.output(out$value),collapse="\n"),"\n"))
+					tkselect(nb2, 0)
+				}
+				if(length(osink)>length2){
+					tkinsert(output,"end",paste(osink[(length2+1):length(osink)],"\n",collapse=""))
+					tkselect(nb2, 0)
+				}
 				tkconfigure(output, state="disabled")
-				tkselect(nb2, 0)
+				tkmark.set(output,"insert","end")
 				outputSaved <<- FALSE
 			}
 			else if(length(out)>1 && out$visible)
@@ -276,13 +307,15 @@ rite <- function(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
 
 	### OUTPUT FUNCTIONS ###
 	if(catchOutput){
-		saveOutput <- function() {
-			filename <- tclvalue(tkgetSaveFile(initialdir=getwd()))
-			if (!length(filename) || filename=="")
+		saveOutput <- function(outfilename="") {
+			if(outfilename=="")
+				outfilename <- tclvalue(tkgetSaveFile(initialdir=getwd()))
+			if (!length(outfilename) || outfilename=="")
 				return()
-			chn <- tclopen(filename, "w")
+			chn <- tclopen(outfilename, "w")
 			tclputs(chn, tclvalue(tkget(output,"0.0","end")))
 			tclclose(chn)
+			invisible(outfilename)
 		}
 		clearOutput <- function(){
 			tkconfigure(output, state="normal")
@@ -298,13 +331,15 @@ rite <- function(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
 		}
 		
 		# convert script to .tex or tangles with knitr
-		knittxt <- function(mode="knit"){
-			knit_inst <- try(library(knitr), silent=TRUE)
-			if(inherits(knit_inst, "try-error")){
-				i <- try(install.packages("knitr"), silent=TRUE)
-				if(inherits(i, "try-error")){
-					tkmessageBox(message="knitr not installed and not installable")
-					return()
+		knittxt <- function(mode="knit", usetxt=TRUE, usefile=FALSE){
+			if(!"package:knitr" %in% search()){
+				knit_inst <- try(library(knitr), silent=TRUE)
+				if(inherits(knit_inst, "try-error")){
+					i <- try(install.packages("knitr"), silent=TRUE)
+					if(inherits(i, "try-error")){
+						tkmessageBox(message="knitr not installed and not installable")
+						return()
+					}
 				}
 			}
 			ksink1 <- ""
@@ -313,74 +348,128 @@ rite <- function(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
 			knitsink2 <- textConnection("ksink2", "w") # create connection for stderr
 			sink(knitsink1, type="output") # sink stdout
 			sink(knitsink2, type="message") # sink stderr
+			
+			if(usetxt){
+				txtvalue <- tclvalue(tkget(txt_edit,"0.0","end"))
+				inputvalue <- NULL
+			}
+			else if(usefile){
+				if(!scriptSaved && is.null(filename))
+					saveAsScript()
+				else if(!scriptSaved && !is.null(filename))
+					saveScript()
+				txtvalue <- NULL
+				inputvalue <- filename
+			}
 			if(mode=="knit")
-				knit_out <- try(knit(text=tclvalue(tkget(txt_edit,"0.0","end"))), silent=TRUE)
+				knit_out <- try(knit(input=inputvalue, text=txtvalue))
+			else if(mode=="purl")
+				knit_out <- try(purl(input=inputvalue, text=txtvalue))
 			else if(mode=="sweave"){
-				sweave_out <- try(Sweave2knitr(text=tclvalue(tkget(txt_edit,"0.0","end"))), silent=TRUE)
+				sweave_out <- try(Sweave2knitr(file=inputvalue, text=txtvalue))
 				if(inherits(sweave_out, "try-error")){
-					tkmessageBox(message="Could not convert Sweave to knitr")
+					tkmessageBox(message="Could not convert Sweave to knitr!")
 					return()
 				}
-				else
-					knit_out <- try(knit(text=sweave_out), silent=TRUE)
+				else if(!is.null(inputvalue)){
+					knit_out <- try(knit(input=gsub("[.]([^.]+)$", "-knitr.\\1", inputvalue), text=txtvalue))
+				}
+				else if(!is.null(txtvalue))
+					knit_out <- try(knit(text=sweave_out))
 			}
 			else if(mode=="tangle"){
-				sweave_out <- try(Sweave2knitr(text=tclvalue(tkget(txt_edit,"0.0","end"))), silent=TRUE)
+				sweave_out <- try(Sweave2knitr(file=inputvalue, text=txtvalue))
 				if(inherits(sweave_out, "try-error")){
-					tkmessageBox(message="Could not convert Sweave to knitr")
+					tkmessageBox(message="Could not convert Sweave to knitr!")
 					return()
 				}
-				else
-					knit_out <- try(purl(text=sweave_out), silent=TRUE)
+				else if(!is.null(inputvalue)){
+					knit_out <- try(purl(input=gsub("[.]([^.]+)$", "-knitr.\\1", inputvalue), text=txtvalue))
+				}
+				else if(!is.null(txtvalue))
+					knit_out <- try(purl(text=sweave_out))
 			}
-			else if(mode=="purl")
-				knit_out <- try(purl(text=tclvalue(tkget(txt_edit,"0.0","end"))), silent=TRUE)
-			else
-				return()
+			else{
+				tkmessageBox(message=paste("Unable to ",mode,"!",sep=""))
+				invisible()
+			}
 			sink(NULL, type="output")
 			sink(NULL, type="message")
 			close(knitsink1)
 			close(knitsink2)
 			tkselect(nb2, 1)
 			tkconfigure(err_out, state="normal")
-			tkinsert(err_out, "insert", paste0(ksink1,collapse="\n"))
-			tkinsert(err_out, "insert", paste0(ksink2,collapse="\n"))
+			tkinsert(err_out, "insert", paste(ksink1,collapse="\n"))
+			tkinsert(err_out, "insert", paste(ksink2,collapse="\n"))
 			tkconfigure(err_out, state="disabled")
 			sink(errsink, type="message")
+			tkfocus(txt_edit)
 			if(inherits(knit_out,"try-error")){
 				tkmessageBox(message=paste("knitr failed:\n",knit_out))
-				return()
+				invisible(knit_out)
 			}
 			else{
 				clearOutput()
 				tkconfigure(output, state="normal")
-				tkinsert(output, "insert", knit_out)
+				if(usefile){
+					chn <- tclopen(knit_out, "r")
+					tkinsert(output, "end", tclvalue(tclread(chn)))
+					tclclose(chn)
+				}
+				else
+					tkinsert(output, "insert", knit_out)
 				tkconfigure(output, state="disabled")
 				tkselect(nb2, 0)
-				return()
+				tkfocus(txt_edit)
+				invisible(knit_out)
 			}
 		}
-	}
-	pdffromfile <- function(){
-		filetopdf <- tclvalue(tkgetOpenFile())
-		if(!filetopdf==""){
-			clearError()
-			tkconfigure(err_out, state="normal")
-			tkmark.set(err_out, "insert", "end")
-			latex1 <- system(paste("pdflatex",filetopdf), intern=TRUE)
-			tkinsert(err_out, "insert", paste0(latex1,collapse="\n"))
-			latex2 <- system(paste("bibtex",filetopdf), intern=TRUE)
-			tkinsert(err_out, "insert", paste0(latex2,collapse="\n"))
-			latex3 <- system(paste("pdflatex",filetopdf), intern=TRUE)
-			tkinsert(err_out, "insert", paste0(latex3,collapse="\n"))
-			latex4 <- system(paste("pdflatex",filetopdf), intern=TRUE)
-			tkinsert(err_out, "insert", paste0(latex4,collapse="\n"))
-			tkconfigure(err_out, state="disabled")
-			tkselect(nb2, 1)
-			if(filetopdf %in% list.files())
-				tkmessageBox(message="PDF created!", icon="info")
-			else
-				tkmessageBox(message="PDF not created!", icon="error")
+		pdffromfile <- function(filetopdf=NULL, texttopdf=FALSE, bibtex=TRUE){
+			if(texttopdf){
+				if(!scriptSaved)
+					saveScript()
+				if(filename=="")
+					invisible()
+				else
+					filetopdf <- filename
+			}
+			else if(is.null(filetopdf))
+				filetopdf <- tclvalue(tkgetOpenFile())
+			if(!filetopdf==""){
+				if(dirname(filetopdf) %in% c(".",getwd())) {}
+				else{
+					file.copy(filetopdf,paste(getwd(),basename(filetopdf),sep="/"), overwrite=TRUE)
+					filetopdf <- paste(getwd(),basename(filetopdf),sep="/")
+				}
+				fstem <- substring(basename(filetopdf),1,regexpr("\\.[[:alnum:]]+$",basename(filetopdf))-1)
+				fstem <- paste(fstem,".pdf",sep="")
+				clearError()
+				tkconfigure(err_out, state="normal")
+				tkmark.set(err_out, "insert", "end")
+				latex1 <- system(paste("pdflatex",filetopdf), intern=TRUE)
+				tkselect(nb2, 1)
+				tkfocus(txt_edit)
+				tkinsert(err_out, "insert", paste(latex1,collapse="\n"))
+				if(is.null(attributes(latex1)$status) && bibtex==TRUE){
+					latex2 <- system(paste("bibtex",filetopdf), intern=TRUE)
+					tkinsert(err_out, "insert", paste(latex2,collapse="\n"))
+					if(is.null(attributes(latex2)$status)){
+						latex3 <- system(paste("pdflatex",filetopdf), intern=TRUE)
+						tkinsert(err_out, "insert", paste(latex3,collapse="\n"))
+						if(is.null(attributes(latex3)$status)){
+							latex4 <- system(paste("pdflatex",filetopdf), intern=TRUE)
+							tkinsert(err_out, "insert", paste(latex4,collapse="\n"))
+						}
+					}
+				}
+				if(fstem %in% list.files()){
+					tkinsert(err_out, "insert", "\n\nOpening pdf ",fstem,"...\n\n")
+					system2(getOption("pdfviewer"),fstem)
+				}
+				else
+					tkmessageBox(message="PDF not created!", icon="error")
+				tkconfigure(err_out, state="disabled")
+			}
 		}
 	}
 	
@@ -388,21 +477,21 @@ rite <- function(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
 	addHighlighting <- function(){
 		addHighlight <- function(){
 			if(!tclvalue(objectval)=="")
-				.Tcl(paste0("ctext::addHighlightClass ",.Tk.ID(txt_edit)," functions ",color,"  [list ",tclvalue(objectval)," ]"))
-			if(!tclvalue(envirval)=="" && paste0("package:",tclvalue(envirval)) %in% search()){
+				.Tcl(paste("ctext::addHighlightClass ",.Tk.ID(txt_edit)," functions ","purple","  [list ",tclvalue(objectval)," ]",sep=""))
+			if(!tclvalue(envirval)=="" && paste("package:",tclvalue(envirval),sep="") %in% search()){
 				packs <- c(	tclvalue(envirval),
 							gsub(" ","",strsplit(packageDescription(tclvalue(envirval), fields="Depends"),",")[[1]]))
 				packs <- na.omit(packs)
 				for(i in 1:length(packs)){
-					funs <- try(paste0(unique(gsub("<-","",objects(paste0("package:",tclvalue(envirval))))),collapse=" "), silent=TRUE)
+					funs <- try(paste(unique(gsub("<-","",objects(paste("package:",tclvalue(envirval),sep="")))),collapse=" "), silent=TRUE)
 					if(!inherits(funs,"try-error"))
-						.Tcl(paste0("ctext::addHighlightClass ",.Tk.ID(txt_edit)," ",tclvalue(envirval),"functions ",color,"  [list ",funs," ]"))
+						.Tcl(paste("ctext::addHighlightClass ",.Tk.ID(txt_edit)," ",tclvalue(envirval),"functions ","purple","  [list ",funs," ]",sep=""))
 				}
 			}
 		}
 		highlightbox <- tktoplevel()
 		tkwm.title(highlightbox, paste("Add Highlighting Class",sep=""))
-		tkwm.iconbitmap(highlightbox,system.file("logo", "favicon.ico", package = "rite"))
+		#tkwm.iconbitmap(highlightbox,system.file("logo", "rlogo.gif", package = "rite"))
 		r <- 1
 		tkgrid.columnconfigure(highlightbox,1,weight=3)
 		tkgrid.columnconfigure(highlightbox,2,weight=10)
@@ -441,16 +530,20 @@ rite <- function(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
 	}
 	about <- function(){
 		aboutbox <- tktoplevel()
-		tkwm.title(aboutbox, paste0("rite Version ", packageDescription("rite", fields = "Version")))
-		tkwm.iconbitmap(aboutbox,system.file("logo", "favicon.ico", package = "rite"))
+		tkwm.title(aboutbox, wmtitle)
+		#tkwm.iconbitmap(aboutbox,system.file("logo", "rlogo.gif", package = "rite"))
 		tkgrid(ttklabel(aboutbox, text= "     "), row=1, column=1)
 		tkgrid(ttklabel(aboutbox, text= "     "), row=1, column=3)
-		tkgrid(ttklabel(aboutbox, text = paste0("(C) Thomas J. Leeper ",max("2013",format(Sys.Date(),"%Y")))), row=2, column=2)
+		tkgrid(ttklabel(aboutbox, text = paste("(C) Thomas J. Leeper ",
+						max("2013",format(Sys.Date(),"%Y")),", released under GPL 2",sep="")), row=2, column=2)
 		tkgrid(ttklabel(aboutbox, text= "     "), row=3, column=2)
-		tkgrid(website <- ttklabel(aboutbox, text = "http://www.thomasleeper.com/software.html", foreground="blue"), row=4, column=2)
-		tkgrid(ttklabel(aboutbox, text= "     "), row=5, column=2)
-		tkgrid(tkbutton(aboutbox, text = "   OK   ", command = function(){tkdestroy(aboutbox); tkfocus(txt_edit)}), row=6, column=2)
+		tkgrid(ttklabel(aboutbox, text= "Special thanks to Yihui Xie for helpful input and assistance!"), row=6, column=2)
 		tkgrid(ttklabel(aboutbox, text= "     "), row=7, column=2)
+		tkgrid(website <- ttklabel(aboutbox, text = "For more information, visit: http://www.thomasleeper.com/software.html",
+									foreground="blue"), row=8, column=2)
+		tkgrid(ttklabel(aboutbox, text= "     "), row=9, column=2)
+		tkgrid(tkbutton(aboutbox, text = "   OK   ", command = function(){tkdestroy(aboutbox); tkfocus(txt_edit)}), row=10, column=2)
+		tkgrid(ttklabel(aboutbox, text= "     "), row=11, column=2)
 		tkbind(website, "<ButtonPress>", function() browseURL("http://www.thomasleeper.com/software.html"))
 		tkfocus(aboutbox)
 	}
@@ -458,7 +551,8 @@ rite <- function(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
 	### EDITOR LAYOUT ###
 	editor <- tktoplevel(borderwidth=0)
 	tkwm.title(editor, wmtitle)	# title
-	tkwm.iconbitmap(editor,system.file("logo", "favicon.ico", package = "rite"))
+	#tcl("wm", "iconphoto", editor, "-default", system.file("logo", "rlogo.gif", package = "rite"))
+	#tkwm.iconbitmap(editor,system.file("logo", "rlogo.gif", package = "rite"))
 	tkwm.protocol(editor, "WM_DELETE_WINDOW", exitWiz) # regulate exit
 
 	### EDITOR MENUS ###
@@ -500,7 +594,7 @@ rite <- function(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
 			}
 			tkadd(menuOutput, "command", label = "Copy Output", command = copyOutput, underline = 0)
 			tkadd(menuOutput, "command", label = "Save Output", command = saveOutput, underline = 0)
-			tkadd(menuOutput, "command", label = "Clear Output Panel", command = clearOutput, underline = 1)
+			tkadd(menuOutput, "command", label = "Clear Output", command = clearOutput, underline = 1)
 			tkadd(menuOutput, "separator")
 			copyMessage <- function(){
 				tkconfigure(err_out, state="normal")
@@ -510,22 +604,36 @@ rite <- function(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
 			}
 			tkadd(menuOutput, "command", label = "Copy Message", command = copyMessage, underline = 0)
 			tkadd(menuOutput, "command", label = "Clear Message", command = clearError, underline = 1)
-			tkadd(menuOutput, "separator")
-			menuReport <- tkmenu(menuOutput, tearoff = FALSE)
-				tkadd(menuReport, "command", label = "knit", command = function() knittxt(mode="knit"), underline = 0)
-				tkadd(menuReport, "command", label = "knit (from Sweave)", command = function() knittxt(mode="sweave"))
-				tkadd(menuReport, "command", label = "purl", command = function() knittxt(mode="purl"), underline = 0)
-				tkadd(menuReport, "command", label = "purl (from Sweave)", command = function() knittxt(mode="tangle"))
-				tkadd(menuReport, "command", label = "pdflatex (from .tex file)", command = pdffromfile)
-				tkadd(menuOutput, "cascade", label = "Report Generation", menu = menuReport, underline = 0)		
 			tkadd(menuTop, "cascade", label = "Output", menu = menuOutput, underline = 0)
+		menuReport <- tkmenu(menuTop, tearoff = FALSE)
+			tkadd(menuReport, "command", label = "knit", command = function() knittxt(mode="knit", usefile=FALSE, usetxt=TRUE), underline = 0)
+			tkadd(menuReport, "command", label = "knit (from Sweave)", command = function() knittxt(mode="sweave", usefile=FALSE, usetxt=TRUE))
+			tkadd(menuReport, "command", label = "purl", command = function() knittxt(mode="purl", usefile=FALSE, usetxt=TRUE), underline = 0)
+			tkadd(menuReport, "command", label = "purl (from Sweave)", command = function() knittxt(mode="tangle", usefile=FALSE, usetxt=TRUE))
+			tkadd(menuReport, "separator")
+			knitpdf <- function(...){
+				if(!scriptSaved)
+					saveAsScript()
+				knit_out <- knittxt(...)
+				if(!inherits(knit_out,"try-error"))
+					pdffromfile(filetopdf=knit_out)
+			}
+			tkadd(menuReport, "command", label = "knit to pdf", command = function() knitpdf(mode="knit", usefile=TRUE, usetxt=FALSE))
+			tkadd(menuReport, "command", label = "knit to pdf (from Sweave)", command = function() knitpdf(mode="sweave", usefile=TRUE, usetxt=FALSE))
+			tkadd(menuReport, "separator")
+			tkadd(menuReport, "command", label = "pdflatex (from rite script)", command = function() pdffromfile(texttopdf=TRUE, bibtex=FALSE))
+			tkadd(menuReport, "command", label = "pdflatex (from file)", command = function() pdffromfile(texttopdf=FALSE, bibtex=FALSE))
+			tkadd(menuReport, "command", label = "pdflatex+bibtex (from rite script)", command = function() pdffromfile(texttopdf=TRUE, bibtex=TRUE))
+			tkadd(menuReport, "command", label = "pdflatex+bibtex (from file)", command = function() pdffromfile(texttopdf=FALSE, bibtex=TRUE))
+			tkadd(menuTop, "cascade", label = "Report Generation", menu = menuReport, underline = 0)
 	}
 	menuHelp <- tkmenu(menuTop, tearoff = FALSE)
 		tkadd(menuHelp, "command", label = "Add Package Highlighting", command = addHighlighting, underline = 0)
+		#tkadd(menuHelp, "command", label = "Remove all objects", command = function() rm(list = ls(all = TRUE, envir=evalenv)), underline=0)
 		tkadd(menuHelp, "command", label = "About rite Script Editor", command = about, underline = 0)
 		tkadd(menuTop, "cascade", label = "Help", menu = menuHelp, underline = 0)
 
-	pw <- tk2panedwindow(editor, orientation = orientation)
+	pw <- ttkpanedwindow(editor, orient = orientation)
 	nb1 <- tk2notebook(pw, tabs = c("Script")) # left pane
 		# script editor
 		edit_tab1 <- tk2notetab(nb1, "Script")
@@ -542,67 +650,7 @@ rite <- function(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
 		tkgrid(edit_scr, sticky="nsew", column=2, row=1)
 		tkgrid.columnconfigure(edit_tab1,1,weight=1)
 		tkgrid.columnconfigure(edit_tab1,2,weight=0)
-		tkgrid.rowconfigure(edit_tab1,1,weight=1)
-			
-		## SYNTAX HIGHLIGHTING RULES
-		# latex
-		if("latex" %in% highlight){
-			# a macro without any brackets
-			.Tcl(paste0("ctext::addHighlightClassForRegexp ",.Tk.ID(txt_edit)," latex1 darkred {\\\\[[:alnum:]|[:punct:]]+}"))
-			# a macro with following brackets (and optionally [] brackets)
-			.Tcl(paste0("ctext::addHighlightClassForRegexp ",.Tk.ID(txt_edit),
-				" latex3 darkred {\\\\[[:alnum:]|[:punct:]]+\\[[[:alnum:]*|[:punct:]*|[:space:]*|=*]*\\]\\{[[:alnum:]|[:punct:]|[:space:]]*\\}}")) # a macro with following brackets
-			# a macro with preceding brackets
-			.Tcl(paste0("ctext::addHighlightClassForRegexp ",.Tk.ID(txt_edit)," latex4 darkred {\\{\\\\[[:alnum:]|[:punct:]]*[[:space:]]*[[:alnum:]|[:punct:]|[:space:]]*\\}}"))
-			# comments
-			.Tcl(paste0("ctext::addHighlightClassForRegexp ",.Tk.ID(txt_edit)," latexcomments red {%[^\n\r]*}"))
-		}
-		# r
-		if("r" %in% highlight){
-			# functions
-			HLfuns <- lapply(search(),FUN=function(x) { paste0(unique(gsub("<-","",objects(x))),collapse=" ") })
-			for(i in 1:length(HLfuns)){
-				if(search()[i]=="package:base")
-					HLfuns[[i]] <- substring(HLfuns[[i]],regexpr("abbreviate",HLfuns[[i]]),nchar(HLfuns[[i]]))
-				.Tcl(paste0("ctext::addHighlightClass ",.Tk.ID(txt_edit)," functions",i," ",color,"  [list ",HLfuns[[i]]," ]"))
-			}
-			HLfuns <- NULL
-			# operators
-			.Tcl(paste0("ctext::addHighlightClass ",.Tk.ID(txt_edit)," specials blue  [list TRUE FALSE NULL NA if else ]"))
-			.Tcl(paste0("ctext::addHighlightClassForSpecialChars ",.Tk.ID(txt_edit)," operators blue {@-+!~?:;*/^<>=&|$%,.}"))
-			# comments
-			.Tcl(paste0("ctext::addHighlightClassForRegexp ",.Tk.ID(txt_edit)," comments darkgreen {#[^\n\r]*}"))
-			# brackets
-			.Tcl(paste0("ctext::addHighlightClassForSpecialChars ",.Tk.ID(txt_edit)," brackets darkblue {[]{}()}"))
-			# numbers
-			.Tcl(paste0("ctext::addHighlightClassForRegexp ",.Tk.ID(txt_edit)," digits orange {[0-9]}"))
-			# character
-			.Tcl(paste0('ctext::addHighlightClassForRegexp ',.Tk.ID(txt_edit),' character1 darkgray {"(?:[^\\"]|\\.)*"}'))
-			.Tcl(paste0("ctext::addHighlightClassForRegexp ",.Tk.ID(txt_edit)," character2 darkgray {'(?:[^\\']|\\.)*'}"))
-		}
-		
-		## BRACKET COMPLETION
-		closeP <- function(p){
-			if(p=="(")
-				q <- ")"
-			else if(p=="[")
-				q <- "]"
-			else if(p=="{")
-				q <- "}"
-			else if(p=="'")
-				q <- "'"
-			else if(p=='"')
-				q <- '"'
-			else
-				return()
-			tkinsert(txt_edit, "insert", paste0(q))
-			tkmark.set(txt_edit,"insert","insert-1char")
-		}
-		tkbind(txt_edit, "<Key-(>", function(...)closeP("("))
-		tkbind(txt_edit, "<Key-[>", function(...)closeP("["))
-		tkbind(txt_edit, "<Key-{>", function(...)closeP("{"))
-		tkbind(txt_edit, "<Key-'>", function(...)closeP("'"))
-		tkbind(txt_edit, '<Key-">', function(...)closeP('"'))
+		tkgrid.rowconfigure(edit_tab1,1,weight=1)		
 	# pack left notebook
 	tkadd(pw, nb1, weight=1) # left pane
 
@@ -652,11 +700,11 @@ rite <- function(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
 			command <- tclvalue(tkget(txt_edit, "insert-1char wordstart", "insert-1char wordend"))
 		if(command %in% c("\n","\t"," ","(",")","[","]","{","}","=",",","*","/","+","-","^","%","$"))
 			return()
-		helpresults <- eval(parse(text=paste0("help(\"",command,"\")")))
+		helpresults <- eval(parse(text=paste("help(\"",command,"\")",sep="")))
 		if(length(helpresults)==1)
-			runCode(paste0("help(\"",command,"\")"))
+			runCode(paste("help(\"",command,"\")",sep=""))
 		else
-			runCode(paste0("help.search(\"",command,"\")"))
+			runCode(paste("help.search(\"",command,"\")",sep=""))
 	}
 	tkbind(txt_edit, "<F1>", f1)
 	
@@ -670,7 +718,7 @@ rite <- function(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
 			return()
 		else{
 			insertpos <- strsplit(tclvalue(tkindex(txt_edit,"insert")),".", fixed=TRUE)[[1]]
-			fnlist <- apropos(paste0("^", command))
+			fnlist <- apropos(paste("^", command,sep=""))
 			if(length(fnlist<15))
 				fnlist <- unique(c(fnlist, apropos(command)))
 			if(length(fnlist)>0){
@@ -763,9 +811,9 @@ rite <- function(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
 				found <- tclvalue(.Tcl(paste(.Tk.ID(txt_edit),"search",ud1,reg1,case1,string,startpos,si1)))
 				if(!found==""){
 					tkdestroy(searchDialog)
-					tktag.add(txt_edit, "sel", found, paste0(found," +",nchar(string),"char"))
+					tktag.add(txt_edit, "sel", found, paste(found," +",nchar(string),"char",sep=""))
 					if(tclvalue(updownvar)==1)
-						tkmark.set(txt_edit, "insert", paste0(found," +",nchar(string),"char"))
+						tkmark.set(txt_edit, "insert", paste(found," +",nchar(string),"char",sep=""))
 					else
 						tkmark.set(txt_edit, "insert", found)
 				}
@@ -791,7 +839,7 @@ rite <- function(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
 		tkbind(searchDialog, "<FocusIn>", search1)
 		tkbind(searchDialog, "<FocusOut>", searchTrans)
 		tkwm.title(searchDialog, paste("Search", sep=""))	# title
-		tkwm.iconbitmap(searchDialog, system.file("logo", "favicon.ico", package = "rite")) # CHANGE FILE TO BITMAP
+		#tkwm.iconbitmap(searchDialog, system.file("logo", "rlogo.gif", package = "rite")) # CHANGE FILE TO BITMAP
 		entryform <- tkframe(searchDialog, relief="groove", borderwidth=2)
 			find.entry <- tkentry(entryform, width = 40, textvariable=findval)
 			#replace.entry <- tkentry(entryform, width = 40, textvariable=replaceval)
@@ -864,13 +912,13 @@ rite <- function(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
 		jump <- function(){
 			lineval <- tclvalue(lineval)
 			if(!lineval=="")
-				tkmark.set(txt_edit,"insert",paste0(lineval,".0"))
+				tkmark.set(txt_edit,"insert",paste(lineval,".0",sep=""))
 			tkdestroy(goDialog)
 			tksee(txt_edit,"insert")
 		}
 		goDialog <- tktoplevel()
 		tkwm.title(goDialog, paste("Go to line",sep=""))	# title
-		tkwm.iconbitmap(goDialog,system.file("logo", "favicon.ico", package = "rite")) # CHANGE FILE TO BITMAP
+		#tkwm.iconbitmap(goDialog,system.file("logo", "rlogo.gif", package = "rite")) # CHANGE FILE TO BITMAP
 		entryform <- tkframe(goDialog, relief="groove", borderwidth=2)
 			lineval <- tclVar("")
 			line.entry <- tkentry(goDialog, width = 5, textvariable=lineval)
@@ -898,7 +946,7 @@ rite <- function(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
 				linen <- paste(	strsplit(e,":")[[1]][2], strsplit(e,":")[[1]][3], sep=".")
 			content <- strsplit(e,":")[[1]]
 			tktag.add(txt_edit,"sel",paste(linen,"linestart"),paste(linen,"lineend"))
-			tkmark.set(txt_edit,"insert",paste0(linen,"-1char"))
+			tkmark.set(txt_edit,"insert",paste(linen,"-1char",sep=""))
 			cat("\a")
 			invisible(FALSE)
 		}
@@ -923,8 +971,8 @@ rite <- function(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
 	tkbind(txt_edit, "<Control-s>", saveScript)
 	tkbind(txt_edit, "<Control-S>", saveScript)
 	
-	tkbind(txt_edit, "<Control-o>", expression(loadScript(filename=NULL), break))
-	tkbind(txt_edit, "<Control-O>", expression(loadScript(filename=NULL), break))
+	tkbind(txt_edit, "<Control-o>", expression(loadScript(fname=NULL), break))
+	tkbind(txt_edit, "<Control-O>", expression(loadScript(fname=NULL), break))
 	
 	if(catchOutput){
 		tkbind(txt_edit, "<Control-l>", clearOutput)
@@ -935,11 +983,11 @@ rite <- function(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
 	
 	toggleComment <- function(){
 		checkandtoggle <- function(pos){
-			check <- tclvalue(tkget(txt_edit, pos, paste0(pos,"+2char")))
+			check <- tclvalue(tkget(txt_edit, pos, paste(pos,"+2char",sep="")))
 			if(check=="# ")
-				tkdelete(txt_edit, pos, paste0(pos,"+2char"))
+				tkdelete(txt_edit, pos, paste(pos,"+2char",sep=""))
 			else if(substring(check,1,1)=="#")
-				tkdelete(txt_edit, pos, paste0(pos,"+1char"))
+				tkdelete(txt_edit, pos, paste(pos,"+1char",sep=""))
 			else{
 				tkmark.set(txt_edit,"insert",pos)
 				tkinsert(txt_edit, "insert", "# ")
@@ -949,7 +997,7 @@ rite <- function(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
 		if(!selrange==""){
 			selrange <- round(as.numeric(strsplit(selrange," ")[[1]]),0)
 			for(i in selrange[1]:(selrange[2]-1))
-				checkandtoggle(paste0(i,".0 linestart"))
+				checkandtoggle(paste(i,".0 linestart",sep=""))
 		}
 		else
 			checkandtoggle("insert linestart")
@@ -959,32 +1007,32 @@ rite <- function(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
 	
 	multitab <- function(){
 		insertpos <- strsplit(tclvalue(tkindex(txt_edit,"insert")),".", fixed=TRUE)[[1]]
-		insertpos2 <- paste0(insertpos[1],".",as.numeric(insertpos[2])+1)
+		insertpos2 <- paste(insertpos[1],".",as.numeric(insertpos[2])+1,sep="")
 		selrange <- tclvalue(tktag.ranges(txt_edit,"sel"))
 		if(selrange=="")
-			tkinsert(txt_edit, paste0(insertpos[1],".0"), "\t")
+			tkinsert(txt_edit, paste(insertpos[1],".0",sep=""), "\t")
 		else{
 			selrange <- floor(as.numeric(strsplit(selrange," ")[[1]]))
 			if(selrange[1]==selrange[2])
 				tkinsert(txt_edit, paste(selrange[1],".0 linestart"), "\t")
 			else{
 				for(i in selrange[1]:selrange[2])
-					tkinsert(txt_edit, paste0(i,".0 linestart"), "\t")
+					tkinsert(txt_edit, paste(i,".0 linestart",sep=""), "\t")
 			}
 		}
 		tkmark.set(txt_edit, "insert", insertpos2)
 	}
 	multiuntab <- function(){
 		insertpos <- strsplit(tclvalue(tkindex(txt_edit,"insert")),".", fixed=TRUE)[[1]]
-		insertpos2 <- paste0(insertpos[1],".",as.numeric(insertpos[2])-1)
+		insertpos2 <- paste(insertpos[1],".",as.numeric(insertpos[2])-1,sep="")
 		selrange <- tclvalue(tktag.ranges(txt_edit,"sel"))
 		if(!selrange==""){
 			selrange <- round(as.numeric(strsplit(selrange," ")[[1]]),0)
 			for(i in selrange[1]:selrange[2]){
-				pos <- paste0(i,".0 linestart")
-				check <- tclvalue(tkget(txt_edit, pos, paste0(pos,"+1char")))
+				pos <- paste(i,".0 linestart",sep="")
+				check <- tclvalue(tkget(txt_edit, pos, paste(pos,"+1char",sep="")))
 				if(check=="\t")
-					tkdelete(txt_edit, pos, paste0(pos,"+1char"))
+					tkdelete(txt_edit, pos, paste(pos,"+1char",sep=""))
 			}
 			tkmark.set(txt_edit, "insert", insertpos2)
 		}
@@ -1010,14 +1058,14 @@ rite <- function(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
 			tabs <- tabs + 1
 			more <- TRUE
 			while(more){
-				tab2 <- tclvalue(tkget(txt_edit, paste0("insert linestart+",tabs,"char"), paste0("insert linestart+",tabs+1,"char")))
+				tab2 <- tclvalue(tkget(txt_edit, paste("insert linestart+",tabs,"char",sep=""), paste("insert linestart+",tabs+1,"char",sep="")))
 				if(tab2=="\t")
 					tabs <- tabs + 1
 				else
 					more <- FALSE
 			}
 		}
-		tkinsert(txt_edit, "insert ", paste0("\n",paste(rep("\t",tabs),collapse="")))
+		tkinsert(txt_edit, "insert ", paste("\n",paste(rep("\t",tabs),collapse=""),sep=""))
 		tksee(txt_edit, "insert")
 	}
 	tkbind(txt_edit, "<Return>", expression(tabreturn, break))
@@ -1030,12 +1078,12 @@ rite <- function(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
 	tkbind(txt_edit, "<Control-A>", expression(selectAllEdit, break))
 	tkbind(txt_edit, "<Control-a>", expression(selectAllEdit, break))
 	
-	copyText <- function(cut=FALSE){
+	copyText <- function(docut=FALSE){
 		selrange <- strsplit(tclvalue(tktag.ranges(txt_edit,"sel"))," ")[[1]]
-		if(!selrange==""){
+		if(!tclvalue(tktag.ranges(txt_edit,"sel"))==""){
 			tkclipboard.clear()
 			tkclipboard.append(tclvalue(tkget(txt_edit, selrange[1], selrange[2])))
-			if(cut)
+			if(docut==TRUE)
 				tkdelete(txt_edit, selrange[1], selrange[2])
 		}
 		else
@@ -1057,7 +1105,7 @@ rite <- function(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
 		tkadd(contextMenu, "separator")
 		tkadd(contextMenu, "command", label = "Select All <Ctrl-A>", command = selectAllEdit)
 		tkadd(contextMenu, "command", label = "Copy <Ctrl-C>", command = copyText)
-		tkadd(contextMenu, "command", label = "Cut <Ctrl-X>", command = function() copyText(cut=TRUE))
+		tkadd(contextMenu, "command", label = "Cut <Ctrl-X>", command = function() copyText(docut=TRUE))
 		tkadd(contextMenu, "command", label = "Paste <Ctrl-V>", command = pasteText)
 		tkadd(contextMenu, "separator")
 		tkadd(contextMenu, "command", label = "Find <Ctrl-F>", command = findreplace)
@@ -1069,19 +1117,77 @@ rite <- function(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
 		rooty <- as.integer(tkwinfo("rooty", txt_edit))
 		xTxt <- as.integer(x) + rootx
 		yTxt <- as.integer(y) + rooty
-		tkmark.set(txt_edit,"insert",paste0("@",xTxt,",",yTxt))
+		tkmark.set(txt_edit,"insert",paste("@",xTxt,",",yTxt,sep=""))
 		.Tcl(paste("tk_popup", .Tcl.args(contextMenu, xTxt, yTxt)))
 	}
 	tkbind(txt_edit, "<Button-3>", rightClick)
 	
+	## SYNTAX HIGHLIGHTING RULES
+	hcolors <- list(functions = "purple",
+					rcomments = "darkgreen",
+					operators = "blue",
+					brackets = "darkblue",
+					digits = "orange",
+					characters = "darkgray",
+					latexmacros = "darkred",
+					latexcomments = "red")
+	if(!is.null(color)){
+		for(i in 1:length(color)){
+			if(!is.null(color[[i]]) && !is.na(color[[i]]) && !color[[i]]=="" && is.character(color[[i]]))
+				hcolors[[names(color)[i]]] <- color[[i]]
+		}
+	}
+	# latex
+	if("latex" %in% highlight){
+		# a macro without any brackets
+		.Tcl(paste('ctext::addHighlightClassForRegexp ',.Tk.ID(txt_edit),' latex1 ',hcolors$latexmacros,' {\\\\[[:alnum:]|[:punct:]]+}',sep=''))
+		# a macro with following brackets (and optionally [] brackets)
+		.Tcl(paste('ctext::addHighlightClassForRegexp ',.Tk.ID(txt_edit),
+			' latex3 ',hcolors$latexmacros,' {\\\\[[:alnum:]|[:punct:]]+\\[[[:alnum:]*|[:punct:]*|[:space:]*|=*]*\\]\\{[[:alnum:]*|[:punct:]*|[:space:]*]*\\}}',
+			sep=''))
+		# a macro with preceding brackets
+		.Tcl(paste('ctext::addHighlightClassForRegexp ',
+			.Tk.ID(txt_edit), ' latex4 ',hcolors$latexmacros,
+			' {\\{\\\\[[:alnum:]|[:punct:]]*[[:space:]]*[[:alnum:]|[:punct:]|[:space:]]*\\}}',sep=''))
+		# comments
+		.Tcl(paste("ctext::addHighlightClassForRegexp ",.Tk.ID(txt_edit)," latexcomments ",hcolors$latexcomments," {%[^\n\r]*}",sep=""))
+	}
+	# r
+	if("r" %in% highlight){
+		# functions
+		HLfuns <- lapply(search(),FUN=function(x) { paste(unique(gsub("<-","",objects(x))),collapse=" ") })
+		uniq <- sort(unique(unlist(lapply(search(), FUN=function(x) {strsplit(gsub("<-","",objects(x)),".",fixed=TRUE)} ))))
+		uniq <- uniq[grep("abbreviate",uniq):length(uniq)]
+		tmpx <- sort(rep(1:ceiling(length(uniq)/30),30))
+		tmpsplit <- split(uniq,tmpx[1:length(uniq)])
+		uniqtmp <- sapply(tmpsplit, FUN=function(x) { paste(" [list",paste(x,collapse=" ")," ]") })
+		for(j in 1:length(uniqtmp)){
+			.Tcl(paste("ctext::addHighlightClass ",.Tk.ID(txt_edit),
+						" basefunctions",j," ", hcolors$functions, uniqtmp[j], sep=""))
+		}
+		rm(HLfuns,uniq,tmpx,tmpsplit,uniqtmp)
+		# operators
+		.Tcl(paste("ctext::addHighlightClass ",.Tk.ID(txt_edit)," specials ",hcolors$operators,"  [list TRUE FALSE NULL NA if else ]",sep=""))
+		.Tcl(paste("ctext::addHighlightClassForSpecialChars ",.Tk.ID(txt_edit)," operators ",hcolors$operators," {@-+!~?:;*/^<>=&|$%,.}",sep=""))
+		# brackets
+		.Tcl(paste("ctext::addHighlightClassForSpecialChars ",.Tk.ID(txt_edit)," brackets ",hcolors$brackets," {[]{}()}",sep=""))
+		# numbers
+		.Tcl(paste("ctext::addHighlightClassForRegexp ",.Tk.ID(txt_edit)," digits ",hcolors$digits," {[0-9]}",sep=""))
+		# character
+		.Tcl(paste('ctext::addHighlightClassForRegexp ',.Tk.ID(txt_edit),' character1 ',hcolors$characters,' {"(?:[^\\"]|\\.)*"}',sep=""))
+		.Tcl(paste("ctext::addHighlightClassForRegexp ",.Tk.ID(txt_edit)," character2 ",hcolors$characters," {'(?:[^\\']|\\.)*'}",sep=""))
+		# comments
+		.Tcl(paste("ctext::addHighlightClassForRegexp ",.Tk.ID(txt_edit)," comments ",hcolors$rcomments," {#[^\n\r]*}",sep=""))
+	}
+	
 	# DISPLAY EDITOR
 	if(!is.null(filename))
-		loadScript(filename=filename)
+		loadScript(fname=filename)
 	tkmark.set(txt_edit,"insert","1.0")
-	if(catchOutput){
-		tcl("wm", "state", editor, "zoomed")
-		tcl("wm", "attributes", editor, "zoomed")
-	}
 	tkfocus(txt_edit)
 	tksee(txt_edit, "insert")
+	if(catchOutput && "windows"==.Platform$OS.type){
+		tcl("wm", "state", editor, "zoomed")
+		tcl("wm", "attributes", editor, "fullscreen")
+	}
 }
