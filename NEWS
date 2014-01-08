@@ -1,6 +1,41 @@
-### CHANGES TO rite 0.2 ###
+# CHANGES to rite 0.3 #
 
-* rite 0.1 was apparently incompatible, for a number of reasons, with non-Windows operating systems. Thanks to significant feedback from Yihue Xie (Iowa State University), rite 0.2 is now compatible with UNIX-like platforms.
+## SIGNIFICANT USER-VISIBLE CHANGES ##
+* From v0.2.56, multi-file gists can now be opened one file at a time.
+* From v0.2.54, reports can now be generated from the standard `rite` editor, not just from `riteout`.
+* The rite output and error widgets now have editing enabled.
+* A checkbox on the Report Generation menu now controls whether PDF and HTML output files are opened after report generation. (#47)
+* Attempting to open or append a multi-file Gist will cause only the first file to be opened and result in a warning.
+* Added support for bracket-completion highlighting. The tk ctext widget already highlighted when brackets were originally righthand closed, but now brackets are highlighted when typed or traversed. (#20)
+* Open script and include script commands now use the ctext widget's `fastinsert` command to improve load times (without immediately highlighting script contents).
+* From v0.2.41, the `echo` parameter now defaults to `TRUE`.
+* The value of `tab` can now be used to specify the amount of space inserted when pressing `<TAB>`. See documentation.
+* Added the ability to load/append/reference a remote file either via printing a `source` call or a multi-line command using **RCurl** and `source`.
+* Added support for loading from and (anonymously) saving to Github gists.
+* Added support for the **knitr** functions `stitch` and `spin`, as well as markdown conversion to the Report Generation menu; reorganized the menu accordingly.
+* A new function `riteout` provides a shorter name wrapper for `rite(catchOutput=TRUE)`.
+* A new function function `sinkstart` provides an experimental tk widget for displaying color-coded R output. The sink can be toggled using `sinkstop` (to keep the widget open but pause the sink) or closed entirely by exiting the widget.
+* Default syntax highlighting now includes only `"r"` rather than `c("r","latex")` as in **rite** (<=0.2).
+* Added preliminary syntax highlighting support for xml/html tags and comments, rnw in-line code chunks, rtex code chunks, brew, reST, roxygen, and markdown code chunks.
+* Support for "objects" operations found on the RGui Misc menu have been added to the Run menu.
+* Added support for `toupper` and `tolower` to the context menu.
+* Added support for option `autosave` to automatically save the script. See documentation.
+
+## BUG FIXES ##
+* Updated imports of Github Gists to correctly retrieve file content from raw URLs. (#60)
+* Fixed a bug that prevented the command completion context menu from destroying on Ubuntu. The menu can be closed with a right-button mouse click. (#53)
+* Fixed bug in SaveAs that was not appending file extensions. (#48)
+* Several bugs - related to handling of periods and other naming irregularities - were corrected in the handling of F2 command completion and F1 help functions.
+* New versions of libcurl (>7.28) deprecate boolean values for options (e.g., SSL_VERIFYPEER and SSL_FOLLOWLOCATION). This has been updated. Everything is backwards compatible to earlier versions of libcurl.
+* Changed the underlying scripting function from an `eval(parse(text=...))` construction to `source` to provide a more robust scripting tool that also allows for a more console-like output (when not in `riteout`).
+* Fixed error on package load with `library` and added support for automatic syntax highlighting when packages are loaded with `require`.
+* Interrupting the printing of output caused rite to hang indefinitely. Printing can now be interrupted from the console/terminal.
+* Selecting "Quit R" from the rite File menu did not prompt to save an unsaved script or output.
+
+
+# CHANGES TO rite 0.2 #
+
+* **rite** 0.1 was apparently incompatible, for a number of reasons, with non-Windows operating systems. Thanks to significant feedback from Yihue Xie, **rite** 0.2 is now compatible with UNIX-like platforms.
 
 ## SIGNIFICANT USER-VISIBLE CHANGES ##
 
@@ -9,14 +44,15 @@
 
 ## BUG FIXES ##
 
-* Removed references to tkwm.bitmap, which was causing a critical failure on linux. (h/t Yihue Xie)
+* Removed references to `tkwm.bitmap`, which was causing a critical failure on linux. (h/t Yihue Xie)
 * Removed a Windows-specific call to `bringToTop` that was preventing loading on other platforms. (h/t Yihue Xie)
-* Modified syntax highlighting code to prevent errors of the form `Error in structure(.External(.C_dotTcl, ...), class = "tclObj") : [tcl] missing close-bracket.` when rite was initialized. Specifically, modified syntax highlighting procedure to handle function names that include punctuation.(h/t Yihue Xie)
-* Fixed a bug in cut (<Ctrl-x> or from the context menu) that was copying but not deleting selected text.
+* Modified syntax highlighting code to prevent errors of the form:
+>`Error in structure(.External(.C_dotTcl, ...), class = "tclObj") : [tcl] missing close-bracket.` when rite was initialized. Specifically, modified syntax highlighting procedure to handle function names that include punctuation.(h/t Yihue Xie)
+* Fixed a bug in cut ("<Ctrl-x>" or from the context menu) that was copying but not deleting selected text.
 * Fixed a typo that prevented the addition of new syntax highlighting when packages were loaded from the script editor.
-* Changed tk2panedwindow (from tcltk2) to ttkpanedwindow (from tcltk).
+* Changed `tk2panedwindow` (from **tcltk2**) to ttkpanedwindow (from **tcltk**).
 
 
-### CHANGES TO rite 0.1 ###
+# CHANGES TO rite 0.1 #
 
 * First version released

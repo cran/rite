@@ -1,11 +1,14 @@
 \name{rite}
 \alias{rite}
+\alias{riteout}
 \title{rite}
 \description{Open rite}
 \usage{
 rite(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
-     fontFamily="Courier", fontSize=10, orientation="horizontal", 
-	 highlight=c("r","latex"), color=NULL, ...)
+     fontFamily="Courier", fontSize=10, orientation="horizontal", fastinsert=FALSE,
+	 highlight="r", color=NULL, autosave=TRUE, echo=TRUE, tab='\t', comment='#', ...)
+
+riteout(...)
 }
 \arguments{
   \item{filename}{Optionally, a character string specifying a file name in the working directory (or file path) to open in rite.}
@@ -14,20 +17,35 @@ rite(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
   \item{fontFamily}{The font family used in rite. Default is \dQuote{\code{Courier}}. Available fonts can be retrieved by \code{.Tcl("font families")}.}
   \item{fontSize}{The font size used in rite. Default is \code{10}.}
   \item{orientation}{If \code{catchOutput=TRUE}, whether the output and error panels should be oriented \dQuote{horizontal} (to the right) or \dQuote{vertical} (below) the script editing panel. Default is \dQuote{horizontal}.}
-  \item{highlight}{A character vector containing one or more of \dQuote{r}, \dQuote{latex}, to indicate what should be higlighted in script.}
-  \item{color}{Either \code{NULL}, or a named list specifying Tcl/Tk colors for highlighting. See details.}
-  \item{...}{Ignored}
+  \item{fastinsert}{A logical, specifying whether insertion (from opening a script, appending a script, or pasting a script) should be done \dQuote{fast} (i.e., without running syntax highlighting. This can significantly improve load times but has the consequence of leaving added text unhighlighted unless modified. Default is \code{FALSE}.}
+  \item{highlight}{A character vector containing one or more of \dQuote{r}, \dQuote{latex}, \dQuote{markdown}, \dQuote{xml}, \dQuote{roxygen}, \dQuote{brew}, and \dQuote{rest} to indicate what should be higlighted in script. Default is \dQuote{r}. Note that using more than a few of these simultaneously may cause unexpected highlighting.}
+  \item{color}{Either \code{NULL}, or a named list specifying Tcl/Tk colors for highlighting. See details below.}
+  \item{autosave}{A logical specifying whether the script should automatically be saved whenever any of the script is run. Default is \code{TRUE}. Note: if \code{filename} is \code{NULL}, the result is saved in the current R session's temporary directory and will be deleted when the R session terminates normally.}
+  \item{echo}{Whether the R calls should be copied to output during \code{source} (only when \code{catchOutput=FALSE}). Default is \code{TRUE}.}
+  \item{tab}{A character string indicating what text should be inserted when the \code{<TAB>} key is pressed. Default is the \code{\\t} character. Alternatively, a numeric value (e.g., \code{4}) is treated as a number of spaces.}
+  \item{comment}{A character string indicating what text should be used for commenting. Default is the hash/pound character.}
+  \item{...}{Ignored by \code{rite}. Used by \code{riteout} to pass arguments to \code{rite}.}
 }
 \details{
 Create, edit, and save R scripts (or any text-based file) and, optionally, sink output to an output viewer rather than the R console.
 
-Scripts can be loaded, appended, referenced (via \code{source}) in the current script, and can be saved.
+Scripts can be loaded, appended, referenced (via \code{source}) in the current script, and can be saved. As of rite version 0.3, scripts can also be saved to and loaded from anonymous GitHub \href{https://gist.github.com/}{gists} to facilitate code sharing.
 
-Scripts can be run by selection, line, or the entire contents of the script editor from the \dQuote{Run} menu. Scripts can also be run from the context menu (via a right mouse click) or with \code{<Control-r>}. \code{<F8>} runs the entire script, whereas \code{<F7>} checks for parsing errors in the entire script without evaluating it.
+Scripts can be run by selection, line, or the entire contents of the script editor from the \dQuote{Run} menu. Scripts can also be run from the context menu (via a right mouse click) or with \code{<Control-r>} or \code{<Control-Return>} to run a selection or the current line. \code{<F8>} runs the entire script, whereas \code{<F7>} checks for parsing errors in the entire script without evaluating it (all code is parsed before running, automatically).
+
+Command completion is now fully supported by pressing \code{<F2>} (a right mouse button click on the menu will close it if no selection is desired). If a function is complete and followed by an open parenetheses (e.g., \code{data.frame(}, the command completion keys bring up a selectable list named arguments for the function. If a dataframe or environment name is complete and followed by a dollar sign (e.g., \code{mydf$}), the command completion keys bring up a list of named elements in the dataframe or environment. \code{<F2>} also opens code chunk arguments after code chunk openings, argument formals after function names, and working directory files and directories after open quotes.
+
+\code{riteout} is a wrapper for \code{rite} that defaults to \code{catchOutput=TRUE}, which provides access to various report generation tools, described in detail below.
 }
 
 \section{Syntax highlighting}{
+rite supports syntax highlighting for R (by default) and, optionally, a number of other R-related languages LaTeX, \href{http://www.rstudio.com/ide/docs/authoring/using_markdown}{R-flavored markdown}, XML and HTML, \href{http://yihui.name/knitr/demo/stitch/}{roxygen}, \href{http://cran.r-project.org/web/packages/brew/index.html}{brew}, and restructured text (reST).
+
+Functions and other objects from loaded packages are highlighted by default on-the-fly.
+
 By default, the following colors are used for syntax highlighting:
+  \code{Normal text (normal)}: {\dQuote{black}}
+  \code{Editor background (background)}: {\dQuote{white}}
   \code{R functions (functions)}: {\dQuote{purple} (this applies to both base functions and those from packages loaded within \code{rite})}
   \code{R comments (rcomments)}: {\dQuote{darkgreen}}
   \code{Operators (operators)}: {\dQuote{blue}}
@@ -35,7 +53,20 @@ By default, the following colors are used for syntax highlighting:
   \code{Digits (digits)}: {\dQuote{orange}}
   \code{Character strings (characters)}: {\dQuote{darkgray}}
   \code{LaTeX macros (latexmacros)}: {\dQuote{darkred}}
-  \code{LaTeX coments (latexcomments)}: {\dQuote{red}}
+  \code{LaTeX equations (latexequations)}: {\dQuote{black}}
+  \code{LaTeX comments (latexcomments)}: {\dQuote{red}}
+  \code{Sweave/knitr code chunks (rnwchunks)}: {\dQuote{blue}}
+  \code{Rtex code chunks (rtexchunks)}: {\dQuote{blue}}
+  \code{Markdown (rmd)}: {\dQuote{darkred}} % not supported yet
+  \code{Markdown code chunks (rmdchunks)}: {\dQuote{blue}}
+  \code{XML/HTML tags (xml)}: {\dQuote{darkred}}
+  \code{XML/HTML comments (xmlcomments)}: {\dQuote{red}}
+  \code{Roxygen text (roxygentext)}: {\dQuote{black}}
+  \code{Roxygen code chunks (roxygenchunks)}: {\dQuote{blue}}
+  \code{Brew comments (brewcomments)}: {\dQuote{red}}
+  \code{Brew chunks (brewchunks)}: {\dQuote{blue}}
+  \code{Brew templates (brewtemplate)}: {\dQuote{black}}
+  \code{reST chunks (restchunks)}: {\dQuote{blue}}
 
 The use of highlighting in general can be regulated by the \code{highlight} parameter. To specify alternative specific colors for any of the above highlighting rules, the \code{color} parameter accepts a named list of content types (listed in parentheses above) and their corresponding colors (in quotes). For example, calling \code{rite(color=list(rcomments='pink'))}, would open \code{rite} with R comments highlighted in pink but leave all other highlighting rules at their default settings.
 }
@@ -47,7 +78,9 @@ The use of highlighting in general can be regulated by the \code{highlight} para
 	
 	\code{<Ctrl-s>}: Save script as
 	
-	\code{<Ctrl-r>}: Run/evaluate line/selection
+	\code{<Ctrl-r>}: Run/evaluate line (or selection, if applicable)
+	
+	\code{<Control-Return>}: Run/evaluate line (or selection, if applicable)
 	
 	\code{<Ctrl-c>}: Copy
 	
@@ -77,7 +110,7 @@ The use of highlighting in general can be regulated by the \code{highlight} para
 	
 	\code{<Ctrl-k>}: Toggle comment on/off for line(s)
 	
-	\code{<Shift-Tab>}: Open command completion context menu (based on cursor position)
+	%\code{<Shift-Tab>}: Open command completion context menu (based on cursor position)
 	
 	\code{<Ctrl-l>}: Clear output panel
 	
@@ -94,7 +127,7 @@ The use of highlighting in general can be regulated by the \code{highlight} para
 	
 	\code{<F1>}: Open help for current function, if a known function (based on cursor position); or the results of help.search()
 	
-	\code{<F2>}: Open command completion context menu (based on cursor position)
+	\code{<F2>}: Open command completion context menu (based on cursor position). A right-button mouse click closes the context menu if no selection is desired (not necessary on all platforms).
 	
 	\code{<F3>}: Find
 	
@@ -116,23 +149,21 @@ The use of highlighting in general can be regulated by the \code{highlight} para
 }
 
 \section{Report generation with knitr}{
-If \code{catchOutput=TRUE}, \code{rite} provides a number of report generation capabilities provided by \code{knitr}. Specifically, a \dQuote{Report Generation} menu becomes available that includes the following options. The first four options simply return the results of \code{knit} or \code{purl} to the output panel (without saving the results). Results can be saved using \dQuote{Save Output} from the \dQuote{Output} menu.
+If \code{catchOutput=TRUE} (or rite is loaded with \code{riteout}), \code{rite} provides a number of report generation capabilities provided by \code{knitr}. Specifically, a \dQuote{Report Generation} menu becomes available that includes the following options. By default, the available tools generate reports from the currently open script in rite, but all the tools can also be run on local files (which opens those files into rite). The general pattern of report generation behavior is to load the input file, display the output file in the \code{riteout} output tab, display any relevant processing information in the \code{riteout} message tab, and open the resulting output file (in the case of functions that produce PDFs or HTML files). The resulting output files can be saved using \dQuote{Save Output} from the \dQuote{Output} menu.
 
-\code{knit}: Runs \code{knit} on the contents of the script panel and returns them in the output panel.
+The following tools are available:
 
-\code{knit (from Sweave)}: Runs \code{Sweave2knitr} on the contents of the script panel and runs \code{knit} on the results, returning the output as above.
+\code{knit}: Runs \code{knit} on the contents of the script panel and returns them in the output panel. Optionally, an R markdown (Rmd) file can be converted directly to HTML and opened. And, optionally, an Rnw file (for knitr or Sweave) can be converted directly to PDF and opened. Support for converting Sweave documents to knitr format can prevent compatibility issues between the two formats.
 
-\code{purl}: Runs \code{purl} on the contents of the script panel and returns them in the output panel.
+\code{purl}: Runs \code{purl} on the contents of the script panel and returns them in the output panel. This is the knitr equivalent of Stangle, producing code-only output from the original document. Again, optionally, an Rnw file (for knitr or Sweave) can be converted directly to PDF and opened. Support for converting Sweave documents to knitr format can prevent compatibility issues between the two formats.
 
-\code{purl (from Sweave)}: Runs \code{Sweave2knitr} on the contents of the script panel and runs \code{purl} on the results, returning the output as above.
+\code{stitch}: Runs \code{stitch} on the contents of the script panel, embedding it into an LaTeX file (and opens the resulting PDF), markdown file (and opens the resulting HTML), or HTML file (and opens the resulting HTML), based on a simple template. This is helpful for converting an unformatted R script into a simple report.
 
-\code{knit to pdf}: Runs \code{knit} on the contents of the script panel, returning the results to the output panel (and saving them locally) before running \code{pdflatex} and \code{bibtex} on the results.
+\code{spin}: Runs \code{spin} on the contents of the script panel, which should be \href{http://yihui.name/knitr/demo/stitch/}{a specially formatted roxygen-style script}. The output is a knitr file, which can optionally be \code{knit} or simply displayed into the output tab.
 
-\code{knit to pdf (from Sweave)}: The same as \code{knit to pdf}, except running \code{Sweave2knitr} before processing, as above.
+\code{markdown}: Convert an R markdown document to either a full HTML document or an HTML fragment (without \code{header} and \code{body} tags) to embed, e.g., in a blog post.
 
-\code{pdflatex (from rite script)}: Runs \code{pdflatex} and \code{bibtex} on the contents of the script panel. If the script has not yet been saved, \code{rite} will prompt you to do so before proceeding. The log files are printed to the message panel.
-
-\code{pdflatex (from .tex file)}: Runs \code{pdflatex} and \code{bibtex} on a selected file, which does not need to be open in the script panel. The log files are printed to the message panel.
+\code{LaTeX} and \code{XeLaTeX}: Run LaTeX or XeLaTeX and, optionally, BibTex as a system call. knitr compiles LaTeX to PDF via DVI using the functionality supplied by the \code{tools} package, so these report generation tools provide functionality for .tex scripts that are not compatible with DVI.
 
 }
 %\value{}
@@ -140,5 +171,15 @@ If \code{catchOutput=TRUE}, \code{rite} provides a number of report generation c
 \author{Thomas J. Leeper}
 %\note{}
 %\seealso{}
-%\examples{\dontrun{rite(catchOutput=TRUE)}}
+\examples{
+\dontrun{
+# run the simple script editor
+rite()
+}
+
+\dontrun{
+# run the script editor with output tools
+riteout()
+}
+}
 \keyword{ IO }
