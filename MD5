@@ -1,10 +1,10 @@
-8990a63e1ed0f87baaf97d49d430849a *DESCRIPTION
-8ce257d7644df513e35ba5d13946ad46 *NAMESPACE
-aa056ec38f74d10e6483da5cbb1156a5 *NEWS
-d2060feff363ad584b73480206547b00 *R/rite.r
+f3403d2d13182d0336fe6af858bd6e93 *DESCRIPTION
+9861678d16cebe1f03089100a8f3c28a *NAMESPACE
+8ce41184e98ca7ee68d8ae20febe28d3 *NEWS
+ffa4ea58a2bbbcaabb122e6feab29e14 *R/rite.r
 87704fcbedcf73bb051d2cc2614cb46d *R/ritesink.r
 173ac4e2db5c22ccf0642178c8f922ea *README.md
 8b1078e199aa2c2513c7a5c5e5ad083a *inst/CITATION
-498f9344ea07cce8b563845e02fa5552 *man/rite-package.Rd
+f47b24e7e99cf0eea77a92bd6a3f69a4 *man/rite-package.Rd
 0ca354be47b0bb0aba3cb9ae749dff0c *man/rite.Rd
 2018daab406dd987e9da48bea896fc04 *man/ritesink.Rd
