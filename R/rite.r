@@ -1,6 +1,8 @@
 rite <- function(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
-                fontFamily="Courier", fontSize=10, orientation="horizontal", fastinsert=FALSE,
-                highlight="r", color=NULL, autosave=TRUE, echo=TRUE, tab='\t', comment='#', ...){    
+                fontFamily="Courier", fontSize=10, orientation="horizontal",
+                fastinsert=FALSE, highlight="r", color=NULL,
+                autosave=TRUE, echo=TRUE, tab='    ', comment='#', 
+                url = NULL, ...){
     ## STARTUP OPTIONS ##
     filename <- filename # script filename (if loaded or saved)
     scriptSaved <- TRUE # a logical for whether current edit file is saved
@@ -11,6 +13,8 @@ rite <- function(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
         echorun <- tclVar(1)
     else
         echorun <- tclVar(0)
+    addtohistory <- tclVar(1)
+    everWarn <- tclVar(1)
     # optionally setup evaluation environment
     if(is.null(evalenv)){
         editenv <- new.env()
@@ -198,7 +202,7 @@ rite <- function(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
             else{
                 if(refonly)
                     tkinsert(txt_edit, "insert", paste("source(\"",filename,"\")\n",sep=""))
-                else{
+                else {
                     chn <- tclopen(fname, "r")
                     if(fastinsert)
                         .Tcl(.Tcl.args(.Tk.ID(txt_edit), 'fastinsert', 'insert', tclvalue(tclread(chn))))
@@ -211,103 +215,115 @@ rite <- function(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
                     filename <<- fname
                     wmtitle <<- paste(filename,"-",packagetitle)
                     tkwm.title(editor, wmtitle)
-                }
-                else
+                } else
                     scriptSaved <<- FALSE
             }
-        }
-        else{
-            processEntry <- function() {
-                tkdestroy(gistDialog)
-                entry <- tclvalue(entry)
-                if(gist){
-                    if(grepl("((^https://)|^)gist.github.com/([^/]+/)?[0-9a-f]+$", entry))
-                        entry <- regmatches(entry, regexpr("[0-9a-f]+$", entry))
-                    entry <- getRawGistURL(entry)
-                    if(is.null(entry)){
-                        riteMsg("Gist not loaded!", error=TRUE)
-                        return()
-                    }
-                    else if(length(entry)>1){
-                        gistDialog <- tktoplevel()
-                        tkwm.title(gistDialog, "Select file from gist...")
-                        scr_gist <- tkscrollbar(gistDialog, repeatinterval=5, command=function(...) tkyview(gist_list,...))
-                        gist_list <- tklistbox(gistDialog, height=10, width=50, selectmode="single",
-                                            yscrollcommand=function(...) tkset(scr_gist,...), background="white")
-                        tkgrid(gist_list, sticky="nsew", column=1, row=1)
-                        tkgrid(scr_gist, sticky="nsew", column=2, row=1)
-                        tkgrid.columnconfigure(gistDialog,1,weight=1)
-                        tkgrid.columnconfigure(gistDialog,2,weight=0)
-                        tkgrid.rowconfigure(gistDialog,1,weight=1)
-                        for(i in 1:length(entry))
-                            tkinsert(gist_list, "end", entry[i])
-                        buttons <- tkframe(gistDialog)
-                            OKbutton <- tkbutton(buttons, text="   OK   ",
-                                command=function() {
-                                    entry <<- entry[as.numeric(tclvalue(tkcurselection(gist_list)))+1]
-                                    tkdestroy(gistDialog)
-                                    tkfocus(editor)
-                                })
-                            Cancelbutton <- tkbutton(buttons,text=" Cancel ",
-                                command=function() {tkdestroy(gistDialog); tkfocus(editor)})
-                            tkgrid(OKbutton, row = 1, column = 1)
-                            tkgrid(Cancelbutton, row = 1, column = 2)
-                        tkgrid(buttons, row=3, column=1, columnspan=3)
-                        tkwait.window(gistDialog)
-                    }
+        } else {
+            if(!is.null(fname)){
+                content <- try(getURL(fname, ssl.verifypeer=0L, followlocation=1L, useragent='RCurl'))
+                if(!inherits(content,"try-error")){
+                    if(fastinsert)
+                        .Tcl(.Tcl.args(.Tk.ID(txt_edit), 'fastinsert', 'insert', content))
+                    else
+                        tkinsert(txt_edit, "insert", content)
                 }
                 else
-                    entry <- entry[1]
-                if(refonly){
-                    if(gist || grepl("https",entry))
-                        tkinsert(txt_edit, "insert", paste(
-                            "library(RCurl)\n",
-                            "writeLines(getURL('",entry,
-                                "',\n\tssl.verifypeer=0L,followlocation=1L),\n\ttemp_file <- tempfile())\n",
-                            "source(temp_file)\n",
-                            "unlink(temp_file)\n",sep=""))
-                    else
-                        tkinsert(txt_edit, "insert", paste("source(\"",entry,"\")\n",sep=""))
-                }
-                else{
-                    content <- try(getURL(entry, ssl.verifypeer=0L, followlocation=1L, useragent='RCurl'))
-                    if(!inherits(content,"try-error")){
-                        if(fastinsert)
-                            .Tcl(.Tcl.args(.Tk.ID(txt_edit), 'fastinsert', 'insert', content))
+                    riteMsg("Script not loaded!", error=TRUE)
+            } else {
+                processEntry <- function() {
+                    tkdestroy(gistDialog)
+                    entry <- tclvalue(entry)
+                    if(gist){
+                        if(grepl("((^https://)|^)gist.github.com/([^/]+/)?[0-9a-f]+$", entry))
+                            entry <- regmatches(entry, regexpr("[0-9a-f]+$", entry))
+                        entry <- getRawGistURL(entry)
+                        if(is.null(entry)){
+                            riteMsg("Gist not loaded!", error=TRUE)
+                            return()
+                        } else if(length(entry)>1){
+                            gistDialog <- tktoplevel()
+                            tkwm.title(gistDialog, "Select file from gist...")
+                            scr_gist <- tkscrollbar(gistDialog, repeatinterval=5, command=function(...) tkyview(gist_list,...))
+                            gist_list <- tklistbox(gistDialog, height=10, width=50, selectmode="single",
+                                                yscrollcommand=function(...) tkset(scr_gist,...), background="white")
+                            tkgrid(gist_list, sticky="nsew", column=1, row=1)
+                            tkgrid(scr_gist, sticky="nsew", column=2, row=1)
+                            tkgrid.columnconfigure(gistDialog,1,weight=1)
+                            tkgrid.columnconfigure(gistDialog,2,weight=0)
+                            tkgrid.rowconfigure(gistDialog,1,weight=1)
+                            for(i in 1:length(entry))
+                                tkinsert(gist_list, "end", entry[i])
+                            buttons <- tkframe(gistDialog)
+                                OKbutton <- tkbutton(buttons, text="   OK   ",
+                                    command=function() {
+                                        entry <<- entry[as.numeric(tclvalue(tkcurselection(gist_list)))+1]
+                                        tkdestroy(gistDialog)
+                                        tkfocus(editor)
+                                    })
+                                Cancelbutton <- tkbutton(buttons,text=" Cancel ",
+                                    command=function() {tkdestroy(gistDialog); tkfocus(editor)})
+                                tkgrid(OKbutton, row = 1, column = 1)
+                                tkgrid(Cancelbutton, row = 1, column = 2)
+                            tkgrid(buttons, row=3, column=1, columnspan=3)
+                            tkwait.window(gistDialog)
+                        }
+                    } else
+                        entry <- entry[1]
+                    if(refonly){
+                        if(gist || grepl("https",entry))
+                            tkinsert(txt_edit, "insert", paste(
+                                "library(RCurl)\n",
+                                "writeLines(getURL('",entry,
+                                    "',\n\tssl.verifypeer=0L,followlocation=1L),\n\ttemp_file <- tempfile())\n",
+                                "source(temp_file)\n",
+                                "unlink(temp_file)\n",sep=""))
                         else
-                            tkinsert(txt_edit, "insert", content)
+                            tkinsert(txt_edit, "insert", paste("source(\"",entry,"\")\n",sep=""))
+                    } else {
+                        content <- try(getURL(entry, ssl.verifypeer=0L, followlocation=1L, useragent='RCurl'))
+                        if(!inherits(content,"try-error")){
+                            if(fastinsert)
+                                .Tcl(.Tcl.args(.Tk.ID(txt_edit), 'fastinsert', 'insert', content))
+                            else
+                                tkinsert(txt_edit, "insert", content)
+                        } else
+                            riteMsg("Script not loaded!", error=TRUE)
                     }
-                    else
-                        riteMsg("Script not loaded!", error=TRUE)
+                    scriptSaved <<- FALSE
                 }
-                scriptSaved <<- FALSE
-            }
-            gistDialog <- tktoplevel()
-            if(gist)
-                tkwm.title(gistDialog, "Enter Gist ID or raw URL")
-            else
-                tkwm.title(gistDialog, "Enter URL")
-            entryform <- tkframe(gistDialog, relief="groove", borderwidth=2)
-                entry <- tclVar()
-                tkgrid(ttklabel(entryform, text = "     "), row=1)
-                urlentry <- tkentry(entryform, width = 50, textvariable=entry)
+                gistDialog <- tktoplevel()
                 if(gist)
-                    tkgrid(tklabel(entryform, text = "ID/URL: "), row=2, column=1)
+                    tkwm.title(gistDialog, "Enter Gist ID or raw URL")
                 else
-                    tkgrid(tklabel(entryform, text = "URL: "), row=2, column=1)
-                tkgrid(urlentry, row=2, column=2, columnspan=4)
-                tkgrid(ttklabel(entryform, text = "     "), row=3)
-            tkgrid(entryform)
-            buttons <- tkframe(gistDialog)
-                OKbutton <- tkbutton(buttons, text="   OK   ", command=processEntry)
-                Cancelbutton <- tkbutton(buttons, text=" Cancel ",
-                    command=function() {tkdestroy(gistDialog); tkfocus(txt_edit)})
-                tkgrid(OKbutton, row=1, column=2)
-                tkgrid(Cancelbutton, row=1, column=3)
-            tkgrid(buttons)
-            tkbind(urlentry, "<Return>", processEntry)
-            tkfocus(gistDialog)
+                    tkwm.title(gistDialog, "Enter URL")
+                entryform <- tkframe(gistDialog, relief="groove", borderwidth=2)
+                    entry <- tclVar()
+                    tkgrid(ttklabel(entryform, text = "     "), row=1)
+                    urlentry <- tkentry(entryform, width = 50, textvariable=entry)
+                    if(gist)
+                        tkgrid(tklabel(entryform, text = "ID/URL: "), row=2, column=1)
+                    else
+                        tkgrid(tklabel(entryform, text = "URL: "), row=2, column=1)
+                    tkgrid(urlentry, row=2, column=2, columnspan=4)
+                    tkgrid(ttklabel(entryform, text = "     "), row=3)
+                tkgrid(entryform)
+                buttons <- tkframe(gistDialog)
+                    OKbutton <- tkbutton(buttons, text="   OK   ", command=processEntry)
+                    Cancelbutton <- tkbutton(buttons, text=" Cancel ",
+                        command=function() {tkdestroy(gistDialog); tkfocus(txt_edit)})
+                    tkgrid(OKbutton, row=1, column=2)
+                    tkgrid(Cancelbutton, row=1, column=3)
+                tkgrid(buttons)
+                tkbind(urlentry, "<Return>", processEntry)
+                tkfocus(gistDialog)
+            }
         }
+    }
+    loadHistory <- function(){
+        tmphistory <- tempfile("Rrawhist")
+        savehistory(tmphistory)
+        loadScript(tmphistory)
+        unlink(tmphistory)
     }
     saveScript <- function(){
         if(is.null(filename) || !length(filename) || filename=="")
@@ -376,6 +392,87 @@ rite <- function(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
         if(browse)
             browseURL(gistouturl)
     }
+    
+    uploadToRPubs <- function(new = TRUE, render='html'){
+        saveScript()
+        wasopen <- openreports
+        if(render=='md2html'){
+            openreports <- tclVar(0)
+            h <- knittxt(genmode="md2html", use='current')
+            openreports <- wasopen
+        } else if(render=='rmd2html') {
+            openreports <- tclVar(0)
+            h <- knittxt(genmode="rmd2html", use='current')
+            openreports <- wasopen
+        } else {
+            h <- filename
+        }
+        if(new){
+            # interactively specify title
+            processEntry <- function() {
+                tkdestroy(rpubsDialog)
+                u <- rpubsUpload(title = tclvalue(entry), htmlFile = h,
+                                 id = NULL, method='internal')
+                                 # temporarily 'internal' due to SSL error
+                riteMsg(paste("RPubs ID is:", u$id))
+                browseURL(u$continueUrl) # browse to continueUrl
+                tkfocus(txt_edit)
+                return()
+            }
+
+            rpubsDialog <- tktoplevel()
+            tkwm.title(rpubsDialog, "Enter Title for Upload")
+            entryform <- tkframe(rpubsDialog, relief="groove", borderwidth=2)
+                entry <- tclVar()
+                tkgrid(ttklabel(entryform, text = "     "), row=1)
+                urlentry <- tkentry(entryform, width = 50, textvariable=entry)
+                tkgrid(tklabel(entryform, text = "Title: "), row=2, column=1)
+                tkgrid(urlentry, row=2, column=2, columnspan=4)
+                tkgrid(ttklabel(entryform, text = "     "), row=3)
+            tkgrid(entryform)
+            buttons <- tkframe(rpubsDialog)
+                OKbutton <- tkbutton(buttons, text="   OK   ", command=processEntry)
+                Cancelbutton <- tkbutton(buttons, text=" Cancel ",
+                    command=function() {tkdestroy(rpubsDialog); tkfocus(txt_edit)})
+                tkgrid(OKbutton, row=1, column=2)
+                tkgrid(Cancelbutton, row=1, column=3)
+            tkgrid(buttons)
+            tkbind(urlentry, "<Return>", processEntry)
+            tkfocus(rpubsDialog)
+        } else {
+            # interactively specify RPubs id
+            processEntry <- function() {
+                tkdestroy(rpubsDialog)
+                u <- rpubsUpload(title = NULL, htmlFile = h,
+                                 id = tclvalue(entry), method='internal')
+                                 # temporarily 'internal' due to SSL error
+                riteMsg(paste("RPubs ID is:", u$id))
+                browseURL(u$continueUrl) # browse to continueUrl
+                tkfocus(txt_edit)
+                return()
+            }
+
+            rpubsDialog <- tktoplevel()
+            tkwm.title(rpubsDialog, "Enter RPubs ID")
+            entryform <- tkframe(rpubsDialog, relief="groove", borderwidth=2)
+                entry <- tclVar()
+                tkgrid(ttklabel(entryform, text = "     "), row=1)
+                urlentry <- tkentry(entryform, width = 50, textvariable=entry)
+                tkgrid(tklabel(entryform, text = "RPubs ID: "), row=2, column=1)
+                tkgrid(urlentry, row=2, column=2, columnspan=4)
+                tkgrid(ttklabel(entryform, text = "     "), row=3)
+            tkgrid(entryform)
+            buttons <- tkframe(rpubsDialog)
+                OKbutton <- tkbutton(buttons, text="   OK   ", command=processEntry)
+                Cancelbutton <- tkbutton(buttons, text=" Cancel ",
+                    command=function() {tkdestroy(rpubsDialog); tkfocus(txt_edit)})
+                tkgrid(OKbutton, row=1, column=2)
+                tkgrid(Cancelbutton, row=1, column=3)
+            tkgrid(buttons)
+            tkbind(urlentry, "<Return>", processEntry)
+            tkfocus(rpubsDialog)
+        }
+    }
         
     ## RUN FUNCTIONS ##
     runCode <- function(code, chunks=FALSE){
@@ -393,17 +490,9 @@ rite <- function(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
             scriptSaved <<- TRUE
             tkwm.title(editor, wmtitle)
         }
-        if(chunks){
-            if(!require(knitr)){
-                install <- try(install.packages("knitr"), silent=TRUE)
-                if(inherits(install, "try-error")){
-                    riteMsg("knitr not installed and not installable", error=TRUE)
-                    return()
-                }
-            }
-            code <- knitr::purl(text=code, quiet=TRUE)
-        }
-        else{
+        if(chunks) {
+            code <- purl(text=code, quiet=TRUE)
+        } else{
             parsed <- tryparse(verbose=FALSE)
             if(!parsed)
                 return()
@@ -427,6 +516,7 @@ rite <- function(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
                 tkfocus(txt_edit)
             }
         }
+        displayWarningDialog <- tclVar(1)
         out <- withRestarts(withCallingHandlers(source(runtemp, print.eval=TRUE,
                 echo=as.logical(as.numeric(tclvalue(echorun)))),
             error = function(errmsg){
@@ -440,10 +530,22 @@ rite <- function(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
                 errmsg <- paste(errmsg[-1],collapse=":")
                 if(catchOutput)
                     writeError(errmsg,"Warning")
-                errbox <- tkmessageBox(message = paste("Warning:",errmsg,"\nDo you want to continue evaluation?"),
-                                        icon = "error", type = "yesno", default = "no")
-                if(tclvalue(errbox)=="no")
-                    invokeRestart("discontinue")
+                a <- as.logical(as.numeric(tclvalue(displayWarningDialog)))
+                b <- as.logical(as.numeric(tclvalue(everWarn)))
+                if(a & b) {
+                    warnmess <- paste("Warning:", errmsg,
+                                  "Do you want to continue evaluation?",
+                                  "Choose \"Cancel\" to continue and suppress further warnings.",
+                                  sep="\n")
+                    errbox <- tkmessageBox(message = warnmess,
+                                           icon = "error", 
+                                           type = "yesnocancel", 
+                                           default = "no")
+                    if(tclvalue(errbox)=="no")
+                        invokeRestart("discontinue")
+                    else if(tclvalue(errbox)=="cancel")
+                        tclvalue(displayWarningDialog) <- 0
+                }
             },
             message = function(errmsg){
                 errmsg <- strsplit(as.character(errmsg),": ")[[1]]
@@ -463,6 +565,15 @@ rite <- function(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
         # a restart to 'discontinue' source(.)-ing
         discontinue = function(){invisible()}
         )
+        if(as.logical(as.numeric(tclvalue(addtohistory)))){
+            tmphistory <- tempfile()
+            savehistory(tmphistory)
+            histcon <- file(tmphistory, open="a")
+            writeLines(code, histcon)
+            close(histcon)
+            loadhistory(tmphistory)
+            unlink(tmphistory)
+        }
         if(catchOutput){
             # output to `output`
             if(length(osink)>length2){
@@ -542,22 +653,6 @@ rite <- function(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
         
     ## KNITR, etc. INTEGRATION ##
     knittxt <- function(genmode="knit", use='text', spinformat=NULL){
-        if(!require(knitr)){
-            install <- try(install.packages("knitr"), silent=TRUE)
-            if(inherits(install, "try-error")){
-                riteMsg("knitr not installed and not installable", error=TRUE)
-                return()
-            }
-        }
-        if(genmode %in% c("md2html","rmd2html")){
-            if(!require(markdown)){
-                install <- try(install.packages("markdown"), silent=TRUE)
-                if(inherits(install, "try-error")){
-                    riteMsg("markdown not installed and not installable", error=TRUE)
-                    return()
-                }
-            }
-        }
         if(catchOutput)
             clearError()
         ksink1 <- ""
@@ -815,18 +910,21 @@ rite <- function(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
     addHighlighting <- function(){
         addHighlight <- function(){
             if(!tclvalue(objectval)=="")
-                .Tcl(paste(    "ctext::addHighlightClass ",.Tk.ID(txt_edit),
-                            " functions ","purple","  [list ",tclvalue(objectval)," ]",sep=""))
+                hl('class', 'functions', hcolors$functions,
+                    paste(" [list ",tclvalue(objectval)," ]",sep=""))
             if(!tclvalue(envirval)=="" && paste("package:",tclvalue(envirval),sep="") %in% search()){
-                packs <- c(    tclvalue(envirval),
-                            gsub(" ","",strsplit(packageDescription(tclvalue(envirval), fields="Depends"),",")[[1]]))
+                packs <- c( tclvalue(envirval),
+                            gsub(" ","",strsplit(packageDescription(tclvalue(envirval),
+                                                                    fields="Depends"),",")[[1]]))
                 packs <- na.omit(packs)
                 for(i in 1:length(packs)){
-                    funs <- try(paste(    unique(gsub("<-","",
-                                        objects(paste("package:",tclvalue(envirval),sep="")))),collapse=" "), silent=TRUE)
-                    if(!inherits(funs,"try-error"))
-                        .Tcl(paste("ctext::addHighlightClass ",.Tk.ID(txt_edit)," ",tclvalue(envirval),
-                                    "functions ","purple","  [list ",funs," ]",sep=""))
+                    funs <- try(paste(unique(gsub("<-","",
+                                      objects(paste("package:",tclvalue(envirval),sep="")))),collapse=" "),
+                                silent=TRUE)
+                    if(!inherits(funs,"try-error")){
+                        hl('class', 'functions', hcolors$functions,
+                            paste(" [list ",funs," ]",sep=""))
+                    }
                 }
             }
         }
@@ -902,6 +1000,8 @@ rite <- function(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
         tkadd(menuFile, "command", label="New Script", command=newScript, underline = 0)
         tkadd(menuFile, "command", label="Load Script",
             command=function() loadScript(locals=TRUE), underline = 0)
+        tkadd(menuFile, "command", label="Load Command History",
+            command=loadHistory)
         tkadd(menuFile, "command", label="Save Script", command=saveScript, underline = 0)
         tkadd(menuFile, "command", label="SaveAs Script", command=saveAsScript, underline = 1)
         tkadd(menuFile, "command", label="Append Script",
@@ -918,16 +1018,29 @@ rite <- function(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
                 command=function() loadScript(locals=FALSE,refonly=TRUE,new=FALSE), underline = 0)
             tkadd(menuFileWeb, "separator")
             tkadd(menuFileWeb, "command", label="Load Script from Gist",
-                command=function() loadScript(locals=FALSE,gist=TRUE), underline = 0)
+                command=function() loadScript(locals=FALSE,gist=TRUE))
             tkadd(menuFileWeb, "command", label="Append Script from Gist",
-                command=function() loadScript(locals=FALSE,gist=TRUE,new=FALSE), underline = 0)
+                command=function() loadScript(locals=FALSE,gist=TRUE,new=FALSE))
             tkadd(menuFileWeb, "command", label="Insert Gist Reference",
-                command=function() loadScript(locals=FALSE,gist=TRUE,refonly=TRUE,new=FALSE), underline = 0)
+                command=function() loadScript(locals=FALSE,gist=TRUE,refonly=TRUE,new=FALSE))
             tkadd(menuFileWeb, "separator")
             tkadd(menuFileWeb, "command", label="Save Script as Gist",
                 command=function() saveGist(), underline = 0)
             tkadd(menuFileWeb, "command", label="Save Script as Gist and Open",
-                command=function() saveGist(browse=TRUE), underline = 0)
+                command=function() saveGist(browse=TRUE))
+            tkadd(menuFileWeb, "separator")
+            tkadd(menuFileWeb, "command", label="Upload HTML as new RPubs",
+                command=function() uploadToRPubs(new=TRUE, render='html'))
+            tkadd(menuFileWeb, "command", label="Upload HTML to update RPubs",
+                command=function() uploadToRPubs(new=FALSE, render='html'))
+            tkadd(menuFileWeb, "command", label="Render md & upload as new RPubs",
+                command=function() uploadToRPubs(new=TRUE, render='md2html'))
+            tkadd(menuFileWeb, "command", label="Render md & update RPubs",
+                command=function() uploadToRPubs(new=FALSE, render='md2html'))
+            tkadd(menuFileWeb, "command", label="knit Rmd & upload as new RPubs",
+                command=function() uploadToRPubs(new=TRUE, render='rmd2html'))
+            tkadd(menuFileWeb, "command", label="knit Rmd & update RPubs",
+                command=function() uploadToRPubs(new=FALSE, render='rmd2html'))
             tkadd(menuFile, "cascade", label = "Remote scripts...", menu = menuFileWeb, underline = 0)
         tkadd(menuFile, "separator")
         tkadd(menuFile, "command", label="Change dir...", command=function(...){
@@ -951,7 +1064,9 @@ rite <- function(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
         tkadd(menuRun, "command", label = "Run All", command = runAll, underline = 4)
         tkadd(menuRun, "command", label = "Run Code Chunks (All)", command = runAllChunks, underline = 4)
         tkadd(menuRun, "separator")
-        tkadd(menuRun, 'checkbutton', label='Echo code', onvalue=1L, variable=echorun)
+        tkadd(menuRun, 'checkbutton', label='Echo code?', onvalue=1L, variable=echorun)
+        tkadd(menuRun, 'checkbutton', label='Wait on warnings?', onvalue=1L, variable=everWarn)
+        tkadd(menuRun, 'checkbutton', label='Add commands to history?', onvalue=1L, variable=addtohistory)
         tkadd(menuRun, "separator")
         if(catchOutput){
             tkadd(menuRun, "command", label="List all objects", command=function()
@@ -1179,7 +1294,7 @@ rite <- function(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
         #tkadd(menuHelp, "separator")
         #tkadd(menuHelp, "command", label = "R language help", underline = 0, command = help.start)
         tkadd(menuHelp, "separator")
-        tkadd(menuHelp, "command", label = "rite Documentation", command = function() help(rite))
+        tkadd(menuHelp, "command", label = "rite Documentation", command = function() help('rite','rite'))
         tkadd(menuHelp, "command", label = "About rite Script Editor", command = about, underline = 0)
         tkadd(menuTop, "cascade", label = "Help", menu = menuHelp, underline = 0)
 
@@ -1197,21 +1312,14 @@ rite <- function(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
         # check for bracket completion
         tktag.configure(txt_edit,'tmpbracketclose', foreground='red',
             font=tkfont.create(family=fontFamily, size=fontSize, weight='bold'))
-        checkbrackets <- function(){
-            startpos <- 'insert'
+        checkbrackets <- function(direction='right'){
             insertpos <- tclvalue(tkindex(txt_edit,"insert"))
-            lastchar <- tclvalue(tkget(txt_edit, "insert-1char", "insert"))
+            lastchar <- switch(direction, right=tclvalue(tkget(txt_edit, "insert", "insert+1char")),
+                                          left=tclvalue(tkget(txt_edit, "insert-1char", "insert")))
             if(lastchar %in% c('{','[','(')){
-                if(lastchar=='{'){
-                    lastchar <- '\\{'
-                    check <- '\\}'
-                }
-                else if(lastchar=='['){
-                    lastchar <- '\\['
-                    check <- '\\]'
-                }
-                else if(lastchar=='(')
-                    check <- ')'
+                check <- switch(lastchar, `{`='\\}', `[`='\\]', `(`=')')
+                lastchar <- switch(lastchar, `{`='\\{', `[`='\\[', `(`='(')
+                startpos <- switch(direction, right='insert+1char', left='insert')
                 counter <- 1
                 while(counter > 0){
                     foundcheck <- lastcheck <- tclvalue(.Tcl(paste(.Tk.ID(txt_edit),"search",
@@ -1239,21 +1347,16 @@ rite <- function(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
                 else{
                     tktag.add(txt_edit,'tmpbracketclose',lastcheck,paste(lastcheck,'+1char'))
                     tktag.raise(txt_edit,'tmpbracketclose','brackets')
-                    tktag.add(txt_edit,'tmpbracketclose',paste(insertpos,'-1char'),insertpos)
+                    if(direction=='right')
+                        tktag.add(txt_edit,'tmpbracketclose',insertpos,paste(insertpos,'+1char'))
+                    else if(direction=='left')
+                        tktag.add(txt_edit,'tmpbracketclose',paste(insertpos,'-1char'),insertpos)
                 }
             }
             if(lastchar %in% c('}',']',')')){
-                if(lastchar=='}'){
-                    lastchar <- '\\}'
-                    check <- '\\{'
-                }
-                else if(lastchar==']'){
-                    lastchar <- '\\]'
-                    check <- '\\['
-                }
-                else if(lastchar==')')
-                    check <- '('
-                startpos <- paste(startpos,'-1char',sep='')
+                check <- switch(lastchar, `}`='\\{', `]`='\\[', `)`='(')
+                lastchar <- switch(lastchar, `}`='\\}', `]`='\\[', `)`=')')
+                startpos <- switch(direction, right='insert', left='insert-1char')
                 counter <- 1
                 while(counter > 0){
                     foundcheck <- lastcheck <- tclvalue(.Tcl(paste(.Tk.ID(txt_edit),"search",
@@ -1269,26 +1372,31 @@ rite <- function(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
                                 counter2 <- FALSE
                             else {
                                 counter <- counter+1
-                                startpos <- paste(foundbracket,'-1char',sep='')
+                                startpos <- foundbracket
                             }
                         }
                         counter <- counter-1
-                        startpos <- paste(foundcheck,'-1char',sep='')
+                        startpos <- foundcheck
                     }
                 }
                 if(lastcheck=='')
                     return()
                 else{
                     tktag.add(txt_edit,'tmpbracketclose',lastcheck,paste(lastcheck,'+1char'))
-                    tktag.add(txt_edit,'tmpbracketclose',paste(insertpos,'-1char'),insertpos)
+                    if(direction=='right')
+                        tktag.add(txt_edit,'tmpbracketclose',insertpos,paste(insertpos,'+1char'))
+                    else if(direction=='left')
+                        tktag.add(txt_edit,'tmpbracketclose',paste(insertpos,'-1char'),insertpos)
                 }
             }
         }
-        editkeypress <- function(){
+        editkeypress <- function(direction='right'){
             tktag.remove(txt_edit,'tmpbracketclose', '1.0', 'end')
-            checkbrackets()
+            checkbrackets(direction)
         }
-        tkbind(txt_edit, "<Key>", editkeypress) # change this to arrow keys?
+        tkbind(txt_edit, "<Right>", function() editkeypress('right'))
+        tkbind(txt_edit, "<Left>", function() editkeypress('left'))
+        tkbind(txt_edit, "<Key>", function() tktag.remove(txt_edit,'tmpbracketclose', '1.0', 'end'))
         
         editModified <- function(){
             scriptSaved <<- FALSE
@@ -1960,88 +2068,92 @@ rite <- function(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
     tkbind(txt_edit, "<Button-3>", rightClick)
     
     ## SYNTAX HIGHLIGHTING RULES ##
+    hl <- function(type, name = NULL, color, pattern){
+        if(is.null(name))
+            name <- paste('hl',paste(sample(letters,6,TRUE),collapse=''), sep='')
+        if(type=='regexp') {
+            .Tcl(paste('ctext::addHighlightClassForRegexp ',.Tk.ID(txt_edit), name, color, pattern))
+            return()
+        } else if(type=='class'){
+            .Tcl(paste('ctext::addHighlightClass ',.Tk.ID(txt_edit), name, color, pattern))
+            return()
+        } else if(type=='chars') {
+            .Tcl(paste('ctext::addHighlightClassForSpecialChars ',.Tk.ID(txt_edit), name, color, pattern))
+            return()
+        } else
+            return()
+    }
+    
     # latex
     if("latex" %in% highlight){
         # a macro without any brackets
-        .Tcl(paste('ctext::addHighlightClassForRegexp ',.Tk.ID(txt_edit),' latex1 ',hcolors$latexmacros,' {\\\\[[:alnum:]|[:punct:]]+}',sep=''))
+        hl('regexp', 'latex1', hcolors$latexmacros,'{\\\\[[:alnum:]|[:punct:]]+}')
         # a macro with following brackets (and optionally [] brackets)
-        .Tcl(paste('ctext::addHighlightClassForRegexp ',.Tk.ID(txt_edit),
-            ' latex3 ',hcolors$latexmacros,' {\\\\[[:alnum:]|[:punct:]]+\\[[[:alnum:]*|[:punct:]*|[:space:]*|=*]*\\]\\{[[:alnum:]*|[:punct:]*|[:space:]*]*\\}}',
-            sep=''))
+        hl('regexp', 'latex3', hcolors$latexmacros,
+            '{\\\\[[:alnum:]|[:punct:]]+\\[[[:alnum:]*|[:punct:]*|[:space:]*|=*]*\\]\\{[[:alnum:]*|[:punct:]*|[:space:]*]*\\}}')
         # a macro with preceding brackets
-        .Tcl(paste('ctext::addHighlightClassForRegexp ',
-            .Tk.ID(txt_edit), ' latex4 ',hcolors$latexmacros,
-            ' {\\{\\\\[[:alnum:]|[:punct:]]*[[:space:]]*[[:alnum:]|[:punct:]|[:space:]]*\\}}',sep=''))
+        hl('regexp', 'latex4', hcolors$latexmacros,
+            '{\\{\\\\[[:alnum:]|[:punct:]]*[[:space:]]*[[:alnum:]|[:punct:]|[:space:]]*\\}}')
         # comments
-        .Tcl(paste("ctext::addHighlightClassForRegexp ",.Tk.ID(txt_edit)," latexcomments ",hcolors$latexcomments,
-            " {(^%[^%[:alnum:]?[:punct:]?].+|[^%[:alnum:]?[:punct:]?]%.+)}",sep=""))
+        hl('regexp', 'latexcomments', hcolors$latexcomments,
+            "{(^%[^%[:alnum:]?[:punct:]?].+|[^%[:alnum:]?[:punct:]?]%.+)}")
         ## AMEND ABOVE TO DEAL WITH %*% %in% type constructions
-        .Tcl(paste('ctext::addHighlightClassForRegexp ', .Tk.ID(txt_edit), ' rnwchunk1a ', hcolors$rnwchunk,
-            ' {<{2}[[:alnum:]?|[:punct:]?|[:space:]?|=?]*>{2}}', sep=''))
-        .Tcl(paste('ctext::addHighlightClassForRegexp ', .Tk.ID(txt_edit), ' rnwchunk1b ', hcolors$rnwchunk, ' @', sep=''))
-        .Tcl(paste('ctext::addHighlightClassForRegexp ', .Tk.ID(txt_edit), ' rnwchunk2 ', hcolors$rnwchunk, ' \\\\Sexpr\\{.?\\}', sep=''))
-        .Tcl(paste("ctext::addHighlightClassForRegexp ",.Tk.ID(txt_edit)," texchunks1 ",hcolors$rtexchunks,
-            " {%% begin.rcode.?}",sep=""))
-        .Tcl(paste("ctext::addHighlightClassForRegexp ",.Tk.ID(txt_edit)," texchunks2 ",hcolors$rtexchunks,
-            " {%% end.rcode.?}",sep=""))
+        hl('regexp', 'rnwchunk1a', hcolors$rnwchunk,'{<{2}[[:alnum:]?|[:punct:]?|[:space:]?|=?]*>{2}}')
+        hl('regexp', 'rnwchunk1b', hcolors$rnwchunk,'@')
+        hl('regexp', 'rnwchunk1c', hcolors$rnwchunk,'\\\\Sexpr\\{.?\\}')
+        hl('regexp', 'rtexchunk1a', hcolors$rtexchunks,'{%% begin.rcode.?}')
+        hl('regexp', 'rtexchunk1b', hcolors$rtexchunks,'{%% end.rcode.?}')
+        
         # equations
-        #.Tcl(paste('ctext::addHighlightClassForRegexp ', .Tk.ID(txt_edit), ' latexeq ', hcolors$latexequations, ' \\${.+}\\$', sep=''))
+        #hl('regexp', 'latexeq', hcolors$rtexchunks,'\\${.+}\\$')
     }
     # markdown
     if("markdown" %in% highlight){
-        message("Highlighting for markdown is only minimally supported")
+        riteMsg("Highlighting for markdown is only minimally supported")
         # something for the various kinds of markdown syntax
-        .Tcl(paste('ctext::addHighlightClassForRegexp ', .Tk.ID(txt_edit), ' rmdheader1 ', hcolors$rmd, ' =+', sep=''))
-        .Tcl(paste('ctext::addHighlightClassForRegexp ', .Tk.ID(txt_edit), ' rmdheader2 ', hcolors$rmd, ' -+', sep=''))
-        .Tcl(paste('ctext::addHighlightClassForRegexp ', .Tk.ID(txt_edit), ' rmdheader3 ', hcolors$rmd, ' {#{1,6} *.+ *#{0,6}$}', sep=''))
-        .Tcl(paste('ctext::addHighlightClassForRegexp ', .Tk.ID(txt_edit), ' rmdlist1 ', hcolors$rmd, ' {^ *[-] .+$}', sep=''))
-        .Tcl(paste('ctext::addHighlightClassForRegexp ', .Tk.ID(txt_edit), ' rmdlist2 ', hcolors$rmd, ' {^ *[+] .+$}', sep=''))
-        .Tcl(paste('ctext::addHighlightClassForRegexp ', .Tk.ID(txt_edit), ' rmdlist3 ', hcolors$rmd, ' {^ *[*] .+$}', sep=''))
-        .Tcl(paste('ctext::addHighlightClassForRegexp ', .Tk.ID(txt_edit), ' rmdlist4 ', hcolors$rmd, ' {[0-9]+[.] .+$}', sep=''))
-        .Tcl(paste('ctext::addHighlightClassForRegexp ', .Tk.ID(txt_edit), ' rmdquote ', hcolors$rmd, ' {^ *[>].+$}', sep=''))
-        .Tcl(paste('ctext::addHighlightClassForRegexp ', .Tk.ID(txt_edit), ' rmdlink ', hcolors$rmd, ' {\\[.+\\]\\(.+\\)}', sep=''))
-        .Tcl(paste('ctext::addHighlightClassForRegexp ', .Tk.ID(txt_edit), ' rmdcode ', hcolors$rmd, ' {`[^r].+`}', sep=''))
+        hl('regexp', 'rmdheader1', hcolors$rmd,'=+')
+        hl('regexp', 'rmdheader2', hcolors$rmd,'=-')
+        hl('regexp', 'rmdheader2', hcolors$rmd,'{#{1,6} *.+ *#{0,6}$}')
+        hl('regexp', 'rmdlist1', hcolors$rmd,'{^ *[-] .+$}')
+        hl('regexp', 'rmdlist2', hcolors$rmd,'{^ *[+] .+$}')
+        hl('regexp', 'rmdlist3', hcolors$rmd,'{^ *[*] .+$}')
+        hl('regexp', 'rmdlist4', hcolors$rmd,'{[0-9]+[.] .+$}')
+        hl('regexp', 'rmdquote', hcolors$rmd,'{^ *[>].+$}')
+        hl('regexp', 'rmdlink', hcolors$rmd,'{\\[.+\\]\\(.+\\)}')
+        hl('regexp', 'rmdcode', hcolors$rmd,'{`[^r].+`}')
         # code chunks of the form ```{} ... ```
-        .Tcl(paste('ctext::addHighlightClassForRegexp ', .Tk.ID(txt_edit), ' rmdchunk1 ', hcolors$rmdchunks, ' `{3}\\{r.+\\}', sep=''))
-        .Tcl(paste('ctext::addHighlightClassForRegexp ', .Tk.ID(txt_edit), ' rmdchunk2 ', hcolors$rmdchunks, ' `{3}', sep=''))
-        # inline code chunks of the form `r ...`
-        .Tcl(paste('ctext::addHighlightClassForRegexp ', .Tk.ID(txt_edit), ' rmdchunk3 ', hcolors$rmdchunks, ' {`r .+`}', sep=''))
+        hl('regexp', 'rmdchunk1a', hcolors$rmd,'`{3}\\{r.+\\}')
+        hl('regexp', 'rmdchunk1b', hcolors$rmd,'`{3}')
+        hl('regexp', 'rmdchunk1c', hcolors$rmd,'{`r .+`}')
     }
     # html
     if("xml" %in% highlight){
         # xml/html tags <...>, </...>, and <.../>
-        .Tcl(paste('ctext::addHighlightClassForRegexp ', .Tk.ID(txt_edit), ' xml1 ', hcolors$xml,
-            ' {</?[[:alnum:]]*(\\s+[[:alnum:]]+=(\\\'|")?\\w*(\\\'|")?)*\\s*/?>}', sep=''))
+        hl('regexp', 'xml1', hcolors$xml,
+            '{</?[[:alnum:]]*(\\s+[[:alnum:]]+=(\\\'|")?\\w*(\\\'|")?)*\\s*/?>}')
         # xml/html comments
-        .Tcl(paste('ctext::addHighlightClassForRegexp ', .Tk.ID(txt_edit), ' xml2 ', hcolors$xmlcomments,
-            ' {<!{1}-{2}.*(\\s+[[:alnum:]]+=(\\\'|")?\\w*(\\\'|")?)*\\s*-{2}>}', sep=''))
+        hl('regexp', 'xml2', hcolors$xmlcomments,
+            '{<!{1}-{2}.*(\\s+[[:alnum:]]+=(\\\'|")?\\w*(\\\'|")?)*\\s*-{2}>}')
     }
     # roxygen
     if("roxygen" %in% highlight){
-        # comments
-        .Tcl(paste("ctext::addHighlightClassForRegexp ",.Tk.ID(txt_edit)," comments ",hcolors$rcomments," {#[^\n\r]*}",sep=""))
-        # text
-        .Tcl(paste("ctext::addHighlightClassForRegexp ",.Tk.ID(txt_edit)," roxygen1 ",hcolors$roxygentext," {#'[^\n\r]*}",sep=""))
-        # chunks
-        .Tcl(paste("ctext::addHighlightClassForRegexp ",.Tk.ID(txt_edit)," roxygen2a ",hcolors$roxygenchunks," {#[+|-][^\n\r]*}",sep=""))
-        .Tcl(paste("ctext::addHighlightClassForRegexp ",.Tk.ID(txt_edit)," roxygen2b ",hcolors$roxygenchunks," {# (@knitr)[^\n\r]*}",sep=""))
+        hl('regexp', 'comments', hcolors$rcomments,'{#[^\n\r]*}')
+        hl('regexp', 'roxygen1', hcolors$roxygentext,"{#'[^\n\r]*}")
+        hl('regexp', 'roxygen2a', hcolors$roxygenchunks,"{#[+|-][^\n\r]*}")
+        hl('regexp', 'roxygen2b', hcolors$roxygenchunks,"{# (@knitr)[^\n\r]*}")
     }
     # brew
     if("brew" %in% highlight){
-        # chunks
-        .Tcl(paste('ctext::addHighlightClassForRegexp ', .Tk.ID(txt_edit), ' brew1a ', hcolors$brewchunks, ' <%.+%>', sep=''))
-        .Tcl(paste('ctext::addHighlightClassForRegexp ', .Tk.ID(txt_edit), ' brew1b ', hcolors$brewchunks, ' <%=.+%>', sep=''))
-        # comments
-        .Tcl(paste('ctext::addHighlightClassForRegexp ', .Tk.ID(txt_edit), ' brew2 ', hcolors$brewcomments, ' <%#.+%>', sep=''))
-        # template
-        .Tcl(paste('ctext::addHighlightClassForRegexp ', .Tk.ID(txt_edit), ' brew3 ', hcolors$brewtemplate, ' <%%.+%%>', sep=''))
+        hl('regexp', 'brew1a', hcolors$brewchunks,'<%.+%>')
+        hl('regexp', 'brew1b', hcolors$brewchunks,'<%=.+%>')
+        hl('regexp', 'brew2', hcolors$brewcomments,'<%#.+%>')
+        hl('regexp', 'brew3', hcolors$brewtemplate,'<%%.+%%>')
     }
     # reST
     if("rest" %in% highlight){
-        # chunks
-        .Tcl(paste('ctext::addHighlightClassForRegexp ', .Tk.ID(txt_edit), ' rest1 ', hcolors$restchunks, ' {[.]{2} \\{r.+\\}}', sep=''))
-        .Tcl(paste('ctext::addHighlightClassForRegexp ', .Tk.ID(txt_edit), ' rest2 ', hcolors$restchunks, ' {[.]{2} [.]{2}}', sep=''))
-        .Tcl(paste('ctext::addHighlightClassForRegexp ', .Tk.ID(txt_edit), ' rest3 ', hcolors$restchunks, ' {:r:`.+`.}', sep=''))
+        hl('regexp', 'rest1a', hcolors$restchunks,'{[.]{2} \\{r.+\\}}')
+        hl('regexp', 'rest1b', hcolors$restchunks,'{[.]{2} [.]{2}}')
+        hl('regexp', 'rest1c', hcolors$restchunks,'{:r:`.+`.}')
     }
     # r
     if("r" %in% highlight){
@@ -2053,31 +2165,27 @@ rite <- function(filename=NULL, catchOutput=FALSE, evalenv=.GlobalEnv,
         tmpsplit <- split(uniq,tmpx[1:length(uniq)])
         uniqtmp <- sapply(tmpsplit, FUN=function(x) { paste(" [list",paste(x,collapse=" ")," ]") })
         for(j in 1:length(uniqtmp)){
-            .Tcl(paste("ctext::addHighlightClass ",.Tk.ID(txt_edit),
-                        " basefunctions",j," ", hcolors$functions, uniqtmp[j], sep=""))
+            hl('class', paste("basefunctions",j,sep=''), hcolors$functions,uniqtmp[j])
         }
         rm(HLfuns,uniq,tmpx,tmpsplit,uniqtmp)
-        # operators
-        .Tcl(paste("ctext::addHighlightClass ",.Tk.ID(txt_edit)," specials ",hcolors$operators,"  [list TRUE FALSE NULL NA if else ]",sep=""))
-        .Tcl(paste("ctext::addHighlightClassForSpecialChars ",.Tk.ID(txt_edit)," operators ",hcolors$operators," {@-+!~?:;*/^<>=&|$,.}",sep=""))
-        .Tcl(paste("ctext::addHighlightClassForRegexp ",.Tk.ID(txt_edit)," percoperators ",hcolors$operators," {%[[:alnum:][:punct:]]+%}",sep=""))
-        # brackets
-        .Tcl(paste("ctext::addHighlightClassForSpecialChars ",.Tk.ID(txt_edit)," brackets ",hcolors$brackets," {[]{}()}",sep=""))
-        # floating point numbers
-        .Tcl(paste("ctext::addHighlightClassForRegexp ",.Tk.ID(txt_edit)," digits ",hcolors$digits," {\\m[-+]?[0-9]*\\.?[0-9]+\\M}",sep=""))
+        hl('class', 'specials', hcolors$operators, '[list TRUE FALSE NULL NA if else ]')
+        hl('chars', 'operators', hcolors$operators, '{@-+!~?:;*/^<>=&|$,.}')
+        hl('regexp', 'infix', hcolors$operators, '{%[[:alnum:][:punct:]]+%}')
+        hl('chars', 'brackets', hcolors$brackets, '{[]{}()}')
+        hl('regexp', 'digits', hcolors$digits, '{\\m[-+]?[0-9]*\\.?[0-9]+\\M}')
         # numbers before letters
-        #.Tcl(paste("ctext::addHighlightClassForRegexp ",.Tk.ID(txt_edit)," digits2 ",hcolors$normal," {\\d+[A-Za-z]+[:space:]?}",sep=""))
-        # character
-        .Tcl(paste('ctext::addHighlightClassForRegexp ',.Tk.ID(txt_edit),' character1 ',hcolors$characters,' {"(?:[^\\"]|\\.)*"}',sep=""))
-        .Tcl(paste("ctext::addHighlightClassForRegexp ",.Tk.ID(txt_edit)," character2 ",hcolors$characters," {'(?:[^\\']|\\.)*'}",sep=""))
-        # comments
+        #hl('regexp', 'digits2', hcolors$normal, '{\\d+[A-Za-z]+[:space:]?}')
+        hl('regexp', 'character1', hcolors$characters, '{"(?:[^\\"]|\\.)*"}')
+        hl('regexp', 'character2', hcolors$characters, " {'(?:[^\\']|\\.)*'}")
         if(!"roxygen" %in% highlight)
-            .Tcl(paste("ctext::addHighlightClassForRegexp ",.Tk.ID(txt_edit)," comments ",hcolors$rcomments," {#[^\n\r]*}",sep=""))
+            hl('regexp', 'comments', hcolors$rcomments, '{#[^\n\r]*}')
     }
     
     ## DISPLAY EDITOR ##
     if(!is.null(filename))
         loadScript(fname=filename)
+    else if(!is.null(url))
+        loadScript(fname=url, locals=FALSE)
     tkmark.set(txt_edit,"insert","1.0")
     tkfocus(txt_edit)
     tksee(txt_edit, "insert")
